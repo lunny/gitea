@@ -8,13 +8,25 @@ import (
 	api "code.gitea.io/sdk/gitea"
 
 	"code.gitea.io/gitea/modules/context"
-	"code.gitea.io/gitea/modules/markdown"
+	"code.gitea.io/gitea/modules/markup"
+	"code.gitea.io/gitea/modules/markup/markdown"
 	"code.gitea.io/gitea/modules/setting"
 )
 
 // Markdown render markdown document to HTML
-// see https://github.com/gogits/go-gogs-client/wiki/Miscellaneous#render-an-arbitrary-markdown-document
 func Markdown(ctx *context.APIContext, form api.MarkdownOption) {
+	// swagger:route POST /markdown miscellaneous renderMarkdown
+	//
+	//     Consumes:
+	//     - application/json
+	//
+	//     Produces:
+	//     - text/html
+	//
+	//     Responses:
+	//       200: MarkdownRender
+	//       422: validationError
+
 	if ctx.HasAPIError() {
 		ctx.Error(422, "", ctx.GetErrMsg())
 		return
@@ -28,7 +40,7 @@ func Markdown(ctx *context.APIContext, form api.MarkdownOption) {
 	switch form.Mode {
 	case "gfm":
 		md := []byte(form.Text)
-		context := markdown.URLJoin(setting.AppURL, form.Context)
+		context := markup.URLJoin(setting.AppURL, form.Context)
 		if form.Wiki {
 			ctx.Write([]byte(markdown.RenderWiki(md, context, nil)))
 		} else {
@@ -40,8 +52,18 @@ func Markdown(ctx *context.APIContext, form api.MarkdownOption) {
 }
 
 // MarkdownRaw render raw markdown HTML
-// see https://github.com/gogits/go-gogs-client/wiki/Miscellaneous#render-a-markdown-document-in-raw-mode
 func MarkdownRaw(ctx *context.APIContext) {
+	// swagger:route POST /markdown/raw miscellaneous renderMarkdownRaw
+	//
+	//     Consumes:
+	//     - text/plain
+	//
+	//     Produces:
+	//     - text/html
+	//
+	//     Responses:
+	//       200: MarkdownRender
+	//       422: validationError
 	body, err := ctx.Req.Body().Bytes()
 	if err != nil {
 		ctx.Error(422, "", err)

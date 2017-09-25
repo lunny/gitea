@@ -24,6 +24,20 @@ type Team struct {
 	Members     []*User       `xorm:"-"`
 	NumRepos    int
 	NumMembers  int
+	UnitTypes   []UnitType `xorm:"json"`
+}
+
+// GetUnitTypes returns unit types the team owned, empty means all the unit types
+func (t *Team) GetUnitTypes() []UnitType {
+	if len(t.UnitTypes) == 0 {
+		return allRepUnitTypes
+	}
+	return t.UnitTypes
+}
+
+// HasWriteAccess returns true if team has at least write level access mode.
+func (t *Team) HasWriteAccess() bool {
+	return t.Authorize >= AccessModeWrite
 }
 
 // IsOwnerTeam returns true if team is owner team.
@@ -82,7 +96,7 @@ func (t *Team) addRepository(e Engine, repo *Repository) (err error) {
 	}
 
 	t.NumRepos++
-	if _, err = e.Id(t.ID).AllCols().Update(t); err != nil {
+	if _, err = e.Id(t.ID).Cols("num_repos").Update(t); err != nil {
 		return fmt.Errorf("update team: %v", err)
 	}
 
@@ -110,7 +124,7 @@ func (t *Team) AddRepository(repo *Repository) (err error) {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -128,7 +142,7 @@ func (t *Team) removeRepository(e Engine, repo *Repository, recalculate bool) (e
 	}
 
 	t.NumRepos--
-	if _, err = e.Id(t.ID).AllCols().Update(t); err != nil {
+	if _, err = e.Id(t.ID).Cols("num_repos").Update(t); err != nil {
 		return err
 	}
 
@@ -171,7 +185,7 @@ func (t *Team) RemoveRepository(repoID int64) error {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -181,6 +195,19 @@ func (t *Team) RemoveRepository(repoID int64) error {
 	}
 
 	return sess.Commit()
+}
+
+// UnitEnabled returns if the team has the given unit type enabled
+func (t *Team) UnitEnabled(tp UnitType) bool {
+	if len(t.UnitTypes) == 0 {
+		return true
+	}
+	for _, u := range t.UnitTypes {
+		if u == tp {
+			return true
+		}
+	}
+	return false
 }
 
 // IsUsableTeamName tests if a name could be as team name
@@ -208,7 +235,7 @@ func NewTeam(t *Team) (err error) {
 	if err != nil {
 		return err
 	} else if !has {
-		return ErrOrgNotExist
+		return ErrOrgNotExist{t.OrgID, ""}
 	}
 
 	t.LowerName = strings.ToLower(t.Name)
@@ -287,7 +314,7 @@ func UpdateTeam(t *Team, authChanged bool) (err error) {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -332,7 +359,7 @@ func DeleteTeam(t *Team) error {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err := sess.Begin(); err != nil {
 		return err
 	}
@@ -460,7 +487,7 @@ func AddTeamMember(team *Team, userID int64) error {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err := sess.Begin(); err != nil {
 		return err
 	}
@@ -494,7 +521,7 @@ func AddTeamMember(team *Team, userID int64) error {
 	if team.IsOwnerTeam() {
 		ou.IsOwner = true
 	}
-	if _, err := sess.Id(ou.ID).AllCols().Update(ou); err != nil {
+	if _, err := sess.Id(ou.ID).Cols("num_teams, is_owner").Update(ou); err != nil {
 		return err
 	}
 
@@ -525,7 +552,7 @@ func removeTeamMember(e Engine, team *Team, userID int64) error {
 		return err
 	} else if _, err = e.
 		Id(team.ID).
-		AllCols().
+		Cols("num_members").
 		Update(team); err != nil {
 		return err
 	}
@@ -552,7 +579,7 @@ func removeTeamMember(e Engine, team *Team, userID int64) error {
 	}
 	if _, err = e.
 		Id(ou.ID).
-		AllCols().
+		Cols("num_teams").
 		Update(ou); err != nil {
 		return err
 	}
@@ -562,7 +589,7 @@ func removeTeamMember(e Engine, team *Team, userID int64) error {
 // RemoveTeamMember removes member from given team of given organization.
 func RemoveTeamMember(team *Team, userID int64) error {
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err := sess.Begin(); err != nil {
 		return err
 	}
@@ -570,6 +597,11 @@ func RemoveTeamMember(team *Team, userID int64) error {
 		return err
 	}
 	return sess.Commit()
+}
+
+// IsUserInTeams returns if a user in some teams
+func IsUserInTeams(userID int64, teamIDs []int64) (bool, error) {
+	return x.Where("uid=?", userID).In("team_id", teamIDs).Exist(new(TeamUser))
 }
 
 // ___________                  __________
@@ -616,4 +648,14 @@ func removeTeamRepo(e Engine, teamID, repoID int64) error {
 		RepoID: repoID,
 	})
 	return err
+}
+
+// GetTeamsWithAccessToRepo returns all teams in an organization that have given access level to the repository.
+func GetTeamsWithAccessToRepo(orgID, repoID int64, mode AccessMode) ([]*Team, error) {
+	teams := make([]*Team, 0, 5)
+	return teams, x.Where("team.authorize >= ?", mode).
+		Join("INNER", "team_repo", "team_repo.team_id = team.id").
+		And("team_repo.org_id = ?", orgID).
+		And("team_repo.repo_id = ?", repoID).
+		Find(&teams)
 }

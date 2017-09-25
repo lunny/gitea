@@ -13,6 +13,7 @@ import (
 	"github.com/go-xorm/xorm"
 	"gopkg.in/ini.v1"
 
+	"code.gitea.io/git"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/process"
 	"code.gitea.io/gitea/modules/setting"
@@ -40,18 +41,26 @@ type Mirror struct {
 
 // BeforeInsert will be invoked by XORM before inserting a record
 func (m *Mirror) BeforeInsert() {
-	m.UpdatedUnix = time.Now().Unix()
-	m.NextUpdateUnix = m.NextUpdate.Unix()
+	if m != nil {
+		m.UpdatedUnix = time.Now().Unix()
+		m.NextUpdateUnix = m.NextUpdate.Unix()
+	}
 }
 
 // BeforeUpdate is invoked from XORM before updating this object.
 func (m *Mirror) BeforeUpdate() {
-	m.UpdatedUnix = time.Now().Unix()
-	m.NextUpdateUnix = m.NextUpdate.Unix()
+	if m != nil {
+		m.UpdatedUnix = time.Now().Unix()
+		m.NextUpdateUnix = m.NextUpdate.Unix()
+	}
 }
 
 // AfterSet is invoked from XORM after setting the value of a field of this object.
 func (m *Mirror) AfterSet(colName string, _ xorm.Cell) {
+	if m == nil {
+		return
+	}
+
 	var err error
 	switch colName {
 	case "repo_id":
@@ -148,6 +157,15 @@ func (m *Mirror) runSync() bool {
 		return false
 	}
 
+	gitRepo, err := git.OpenRepository(repoPath)
+	if err != nil {
+		log.Error(4, "OpenRepository: %v", err)
+		return false
+	}
+	if err = SyncReleasesWithTags(m.Repo, gitRepo); err != nil {
+		log.Error(4, "Failed to synchronize tags to releases for repository: %v", err)
+	}
+
 	if err := m.Repo.UpdateSize(); err != nil {
 		log.Error(4, "Failed to update size for mirror repository: %v", err)
 	}
@@ -202,10 +220,9 @@ func DeleteMirrorByRepoID(repoID int64) error {
 
 // MirrorUpdate checks and updates mirror repositories.
 func MirrorUpdate() {
-	if taskStatusTable.IsRunning(mirrorUpdate) {
+	if !taskStatusTable.StartIfNotRunning(mirrorUpdate) {
 		return
 	}
-	taskStatusTable.Start(mirrorUpdate)
 	defer taskStatusTable.Stop(mirrorUpdate)
 
 	log.Trace("Doing: MirrorUpdate")

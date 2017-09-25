@@ -104,7 +104,7 @@ func (m *Milestone) APIFormat() *api.Milestone {
 // NewMilestone creates new milestone of repository.
 func NewMilestone(m *Milestone) (err error) {
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func ChangeMilestoneStatus(m *Milestone, isClosed bool) (err error) {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func ChangeMilestoneStatus(m *Milestone, isClosed bool) (err error) {
 
 	repo.NumMilestones = int(countRepoMilestones(sess, repo.ID))
 	repo.NumClosedMilestones = int(countRepoClosedMilestones(sess, repo.ID))
-	if _, err = sess.Id(repo.ID).AllCols().Update(repo); err != nil {
+	if _, err = sess.Id(repo.ID).Cols("num_milestones, num_closed_milestones").Update(repo); err != nil {
 		return err
 	}
 	return sess.Commit()
@@ -330,7 +330,7 @@ func DeleteMilestoneByRepoID(repoID, id int64) error {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -341,7 +341,7 @@ func DeleteMilestoneByRepoID(repoID, id int64) error {
 
 	repo.NumMilestones = int(countRepoMilestones(sess, repo.ID))
 	repo.NumClosedMilestones = int(countRepoClosedMilestones(sess, repo.ID))
-	if _, err = sess.Id(repo.ID).AllCols().Update(repo); err != nil {
+	if _, err = sess.Id(repo.ID).Cols("num_milestones, num_closed_milestones").Update(repo); err != nil {
 		return err
 	}
 

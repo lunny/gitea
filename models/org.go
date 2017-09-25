@@ -16,8 +16,6 @@ import (
 )
 
 var (
-	// ErrOrgNotExist organization does not exist
-	ErrOrgNotExist = errors.New("Organization does not exist")
 	// ErrTeamNotExist team does not exist
 	ErrTeamNotExist = errors.New("Team does not exist")
 )
@@ -127,7 +125,7 @@ func CreateOrganization(org, owner *User) (err error) {
 	org.Type = UserTypeOrganization
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -156,6 +154,7 @@ func CreateOrganization(org, owner *User) (err error) {
 		Name:       ownerTeamName,
 		Authorize:  AccessModeOwner,
 		NumMembers: 1,
+		UnitTypes:  allRepUnitTypes,
 	}
 	if _, err = sess.Insert(t); err != nil {
 		return fmt.Errorf("insert owner team: %v", err)
@@ -179,7 +178,7 @@ func CreateOrganization(org, owner *User) (err error) {
 // GetOrgByName returns organization by given name.
 func GetOrgByName(name string) (*User, error) {
 	if len(name) == 0 {
-		return nil, ErrOrgNotExist
+		return nil, ErrOrgNotExist{0, name}
 	}
 	u := &User{
 		LowerName: strings.ToLower(name),
@@ -189,7 +188,7 @@ func GetOrgByName(name string) (*User, error) {
 	if err != nil {
 		return nil, err
 	} else if !has {
-		return nil, ErrOrgNotExist
+		return nil, ErrOrgNotExist{0, name}
 	}
 	return u, nil
 }
@@ -236,11 +235,7 @@ func DeleteOrganization(org *User) (err error) {
 		}
 	}
 
-	if err = sess.Commit(); err != nil {
-		return err
-	}
-
-	return nil
+	return sess.Commit()
 }
 
 func deleteOrg(e *xorm.Session, u *User) error {
@@ -417,7 +412,7 @@ func ChangeOrgUserStatus(orgID, uid int64, public bool) error {
 	}
 
 	ou.IsPublic = public
-	_, err = x.Id(ou.ID).AllCols().Update(ou)
+	_, err = x.Id(ou.ID).Cols("is_public").Update(ou)
 	return err
 }
 
@@ -480,7 +475,7 @@ func RemoveOrgUser(orgID, userID int64) error {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err := sess.Begin(); err != nil {
 		return err
 	}
@@ -548,10 +543,10 @@ func removeOrgRepo(e Engine, orgID, repoID int64) error {
 
 	teamIDs := make([]int64, len(teamRepos))
 	for i, teamRepo := range teamRepos {
-		teamIDs[i] = teamRepo.ID
+		teamIDs[i] = teamRepo.TeamID
 	}
 
-	_, err := x.Decr("num_repos").In("id", teamIDs).Update(new(Team))
+	_, err := e.Decr("num_repos").In("id", teamIDs).Update(new(Team))
 	return err
 }
 
@@ -576,6 +571,11 @@ func (org *User) getUserTeamIDs(e Engine, userID int64) ([]int64, error) {
 		Join("INNER", "team_user", "`team_user`.team_id = team.id").
 		And("`team_user`.uid = ?", userID).
 		Find(&teamIDs)
+}
+
+// TeamsWithAccessToRepo returns all teamsthat have given access level to the repository.
+func (org *User) TeamsWithAccessToRepo(repoID int64, mode AccessMode) ([]*Team, error) {
+	return GetTeamsWithAccessToRepo(org.ID, repoID, mode)
 }
 
 // GetUserTeamIDs returns of all team IDs of the organization that user is member of.
@@ -676,7 +676,7 @@ func (env *accessibleReposEnv) MirrorRepoIDs() ([]int64, error) {
 		Table("repository").
 		Join("INNER", "team_repo", "`team_repo`.repo_id=`repository`.id AND `repository`.is_mirror=?", true).
 		Where(env.cond()).
-		GroupBy("`repository`.id").
+		GroupBy("`repository`.id, `repository`.updated_unix").
 		OrderBy("updated_unix DESC").
 		Cols("`repository`.id").
 		Find(&repoIDs)

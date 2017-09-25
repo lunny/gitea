@@ -20,6 +20,8 @@ import (
 const (
 	// tplHome home page template
 	tplHome base.TplName = "home"
+	// tplSwagger swagger page template
+	tplSwagger base.TplName = "swagger"
 	// tplExploreRepos explore repositories page template
 	tplExploreRepos base.TplName = "explore/repos"
 	// tplExploreUsers explore users page template
@@ -51,6 +53,11 @@ func Home(ctx *context.Context) {
 	ctx.HTML(200, tplHome)
 }
 
+// Swagger render swagger-ui page
+func Swagger(ctx *context.Context) {
+	ctx.HTML(200, tplSwagger)
+}
+
 // RepoSearchOptions when calling search repositories
 type RepoSearchOptions struct {
 	Ranger   func(*models.SearchRepoOptions) (models.RepositoryList, int64, error)
@@ -79,33 +86,38 @@ func RenderRepoSearch(ctx *context.Context, opts *RepoSearchOptions) {
 		repos   []*models.Repository
 		count   int64
 		err     error
-		orderBy string
+		orderBy models.SearchOrderBy
 	)
 	ctx.Data["SortType"] = ctx.Query("sort")
 
 	switch ctx.Query("sort") {
 	case "oldest":
-		orderBy = "created_unix ASC"
+		orderBy = models.SearchOrderByOldest
 	case "recentupdate":
-		orderBy = "updated_unix DESC"
+		orderBy = models.SearchOrderByRecentUpdated
 	case "leastupdate":
-		orderBy = "updated_unix ASC"
+		orderBy = models.SearchOrderByLeastUpdated
 	case "reversealphabetically":
-		orderBy = "name DESC"
+		orderBy = models.SearchOrderByAlphabeticallyReverse
 	case "alphabetically":
-		orderBy = "name ASC"
+		orderBy = models.SearchOrderByAlphabetically
+	case "reversesize":
+		orderBy = models.SearchOrderBySizeReverse
+	case "size":
+		orderBy = models.SearchOrderBySize
 	default:
-		orderBy = "created_unix DESC"
+		orderBy = models.SearchOrderByNewest
 	}
 
 	keyword := strings.Trim(ctx.Query("q"), " ")
 	if len(keyword) == 0 {
 		repos, count, err = opts.Ranger(&models.SearchRepoOptions{
-			Page:     page,
-			PageSize: opts.PageSize,
-			Searcher: ctx.User,
-			OrderBy:  orderBy,
-			Private:  opts.Private,
+			Page:        page,
+			PageSize:    opts.PageSize,
+			Searcher:    ctx.User,
+			OrderBy:     orderBy,
+			Private:     opts.Private,
+			Collaborate: true,
 		})
 		if err != nil {
 			ctx.Handle(500, "opts.Ranger", err)
@@ -114,12 +126,13 @@ func RenderRepoSearch(ctx *context.Context, opts *RepoSearchOptions) {
 	} else {
 		if isKeywordValid(keyword) {
 			repos, count, err = models.SearchRepositoryByName(&models.SearchRepoOptions{
-				Keyword:  keyword,
-				OrderBy:  orderBy,
-				Private:  opts.Private,
-				Page:     page,
-				PageSize: opts.PageSize,
-				Searcher: ctx.User,
+				Keyword:     keyword,
+				OrderBy:     orderBy,
+				Private:     opts.Private,
+				Page:        page,
+				PageSize:    opts.PageSize,
+				Searcher:    ctx.User,
+				Collaborate: true,
 			})
 			if err != nil {
 				ctx.Handle(500, "SearchRepositoryByName", err)

@@ -107,17 +107,19 @@ func checkAutoLogin(ctx *context.Context) bool {
 
 // SignIn render sign in page
 func SignIn(ctx *context.Context) {
+	ctx.Data["Title"] = ctx.Tr("sign_in")
 
 	// Check auto-login.
 	if checkAutoLogin(ctx) {
 		return
 	}
 
-	oauth2Providers, err := models.GetActiveOAuth2Providers()
+	orderedOAuth2Names, oauth2Providers, err := models.GetActiveOAuth2Providers()
 	if err != nil {
 		ctx.Handle(500, "UserSignIn", err)
 		return
 	}
+	ctx.Data["OrderedOAuth2Names"] = orderedOAuth2Names
 	ctx.Data["OAuth2Providers"] = oauth2Providers
 	ctx.Data["Title"] = ctx.Tr("sign_in")
 	ctx.Data["SignInLink"] = setting.AppSubURL + "/user/login"
@@ -129,11 +131,14 @@ func SignIn(ctx *context.Context) {
 
 // SignInPost response for sign in request
 func SignInPost(ctx *context.Context, form auth.SignInForm) {
-	oauth2Providers, err := models.GetActiveOAuth2Providers()
+	ctx.Data["Title"] = ctx.Tr("sign_in")
+
+	orderedOAuth2Names, oauth2Providers, err := models.GetActiveOAuth2Providers()
 	if err != nil {
 		ctx.Handle(500, "UserSignIn", err)
 		return
 	}
+	ctx.Data["OrderedOAuth2Names"] = orderedOAuth2Names
 	ctx.Data["OAuth2Providers"] = oauth2Providers
 	ctx.Data["Title"] = ctx.Tr("sign_in")
 	ctx.Data["SignInLink"] = setting.AppSubURL + "/user/login"
@@ -149,8 +154,10 @@ func SignInPost(ctx *context.Context, form auth.SignInForm) {
 	if err != nil {
 		if models.IsErrUserNotExist(err) {
 			ctx.RenderWithErr(ctx.Tr("form.username_password_incorrect"), tplSignIn, &form)
+			log.Info("Failed authentication attempt for %s from %s", form.UserName, ctx.RemoteAddr())
 		} else if models.IsErrEmailAlreadyUsed(err) {
 			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), tplSignIn, &form)
+			log.Info("Failed authentication attempt for %s from %s", form.UserName, ctx.RemoteAddr())
 		} else {
 			ctx.Handle(500, "UserSignIn", err)
 		}
@@ -335,8 +342,8 @@ func handleSignInFull(ctx *context.Context, u *models.User, remember bool, obeyR
 
 	// Register last login
 	u.SetLastLogin()
-	if err := models.UpdateUser(u); err != nil {
-		ctx.Handle(500, "UpdateUser", err)
+	if err := models.UpdateUserCols(u, "last_login_unix"); err != nil {
+		ctx.Handle(500, "UpdateUserCols", err)
 		return
 	}
 
@@ -425,8 +432,8 @@ func handleOAuth2SignIn(u *models.User, gothUser goth.User, ctx *context.Context
 
 			// Register last login
 			u.SetLastLogin()
-			if err := models.UpdateUser(u); err != nil {
-				ctx.Handle(500, "UpdateUser", err)
+			if err := models.UpdateUserCols(u, "last_login_unix"); err != nil {
+				ctx.Handle(500, "UpdateUserCols", err)
 				return
 			}
 
@@ -661,7 +668,8 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 	if models.CountUsers() == 1 {
 		u.IsAdmin = true
 		u.IsActive = true
-		if err := models.UpdateUser(u); err != nil {
+		u.SetLastLogin()
+		if err := models.UpdateUserCols(u, "is_admin", "is_active", "last_login_unix"); err != nil {
 			ctx.Handle(500, "UpdateUser", err)
 			return
 		}
@@ -672,7 +680,7 @@ func LinkAccountPostRegister(ctx *context.Context, cpt *captcha.Captcha, form au
 		models.SendActivateAccountMail(ctx.Context, u)
 		ctx.Data["IsSendRegisterMail"] = true
 		ctx.Data["Email"] = u.Email
-		ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
+		ctx.Data["ActiveCodeLives"] = base.MinutesToFriendly(setting.Service.ActiveCodeLives, ctx.Locale.Language())
 		ctx.HTML(200, TplActivate)
 
 		if err := ctx.Cache.Put("MailResendLimit_"+u.LowerName, u.LowerName, 180); err != nil {
@@ -776,7 +784,8 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 	if models.CountUsers() == 1 {
 		u.IsAdmin = true
 		u.IsActive = true
-		if err := models.UpdateUser(u); err != nil {
+		u.SetLastLogin()
+		if err := models.UpdateUserCols(u, "is_admin", "is_active", "last_login_unix"); err != nil {
 			ctx.Handle(500, "UpdateUser", err)
 			return
 		}
@@ -787,7 +796,7 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 		models.SendActivateAccountMail(ctx.Context, u)
 		ctx.Data["IsSendRegisterMail"] = true
 		ctx.Data["Email"] = u.Email
-		ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
+		ctx.Data["ActiveCodeLives"] = base.MinutesToFriendly(setting.Service.ActiveCodeLives, ctx.Locale.Language())
 		ctx.HTML(200, TplActivate)
 
 		if err := ctx.Cache.Put("MailResendLimit_"+u.LowerName, u.LowerName, 180); err != nil {
@@ -813,7 +822,7 @@ func Activate(ctx *context.Context) {
 			if ctx.Cache.IsExist("MailResendLimit_" + ctx.User.LowerName) {
 				ctx.Data["ResendLimited"] = true
 			} else {
-				ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
+				ctx.Data["ActiveCodeLives"] = base.MinutesToFriendly(setting.Service.ActiveCodeLives, ctx.Locale.Language())
 				models.SendActivateAccountMail(ctx.Context, ctx.User)
 
 				if err := ctx.Cache.Put("MailResendLimit_"+ctx.User.LowerName, ctx.User.LowerName, 180); err != nil {
@@ -835,7 +844,7 @@ func Activate(ctx *context.Context) {
 			ctx.Handle(500, "UpdateUser", err)
 			return
 		}
-		if err := models.UpdateUser(user); err != nil {
+		if err := models.UpdateUserCols(user, "is_active", "rands"); err != nil {
 			if models.IsErrUserNotExist(err) {
 				ctx.Error(404)
 			} else {
@@ -908,7 +917,7 @@ func ForgotPasswdPost(ctx *context.Context) {
 	u, err := models.GetUserByEmail(email)
 	if err != nil {
 		if models.IsErrUserNotExist(err) {
-			ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
+			ctx.Data["ResetPwdCodeLives"] = base.MinutesToFriendly(setting.Service.ResetPwdCodeLives, ctx.Locale.Language())
 			ctx.Data["IsResetSent"] = true
 			ctx.HTML(200, tplForgotPassword)
 			return
@@ -935,7 +944,7 @@ func ForgotPasswdPost(ctx *context.Context) {
 		log.Error(4, "Set cache(MailResendLimit) fail: %v", err)
 	}
 
-	ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
+	ctx.Data["ResetPwdCodeLives"] = base.MinutesToFriendly(setting.Service.ResetPwdCodeLives, ctx.Locale.Language())
 	ctx.Data["IsResetSent"] = true
 	ctx.HTML(200, tplForgotPassword)
 }
@@ -986,7 +995,7 @@ func ResetPasswdPost(ctx *context.Context) {
 			return
 		}
 		u.EncodePasswd()
-		if err := models.UpdateUser(u); err != nil {
+		if err := models.UpdateUserCols(u, "passwd", "rands", "salt"); err != nil {
 			ctx.Handle(500, "UpdateUser", err)
 			return
 		}

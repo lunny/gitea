@@ -19,9 +19,9 @@ import (
 	"code.gitea.io/gitea/modules/log"
 
 	"github.com/go-xorm/xorm"
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/armor"
-	"golang.org/x/crypto/openpgp/packet"
+	"github.com/keybase/go-crypto/openpgp"
+	"github.com/keybase/go-crypto/openpgp/armor"
+	"github.com/keybase/go-crypto/openpgp/packet"
 )
 
 // GPGKey represents a GPG key.
@@ -89,7 +89,7 @@ func GetGPGKeyByID(keyID int64) (*GPGKey, error) {
 func checkArmoredGPGKeyString(content string) (*openpgp.Entity, error) {
 	list, err := openpgp.ReadArmoredKeyRing(strings.NewReader(content))
 	if err != nil {
-		return nil, err
+		return nil, ErrGPGKeyParsing{err}
 	}
 	return list[0], nil
 }
@@ -127,7 +127,7 @@ func AddGPGKey(ownerID int64, content string) (*GPGKey, error) {
 
 	//Get DB session
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return nil, err
 	}
@@ -208,21 +208,27 @@ func parseGPGKey(ownerID int64, e *openpgp.Entity) (*GPGKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	emails := make([]*EmailAddress, len(e.Identities))
-	n := 0
-	for _, ident := range e.Identities {
 
+	emails := make([]*EmailAddress, 0, len(e.Identities))
+	for _, ident := range e.Identities {
+		email := strings.ToLower(strings.TrimSpace(ident.UserId.Email))
 		for _, e := range userEmails {
-			if e.Email == ident.UserId.Email && e.IsActivated {
-				emails[n] = e
+			if e.Email == email {
+				emails = append(emails, e)
 				break
 			}
 		}
-		if emails[n] == nil {
-			return nil, fmt.Errorf("Failed to found email or is not confirmed : %s", ident.UserId.Email)
-		}
-		n++
 	}
+
+	//In the case no email as been found
+	if len(emails) == 0 {
+		failedEmails := make([]string, 0, len(e.Identities))
+		for _, ident := range e.Identities {
+			failedEmails = append(failedEmails, ident.UserId.Email)
+		}
+		return nil, ErrGPGNoEmailFound{failedEmails}
+	}
+
 	content, err := base64EncPubKey(pubkey)
 	if err != nil {
 		return nil, err
@@ -267,7 +273,7 @@ func DeleteGPGKey(doer *User, id int64) (err error) {
 	}
 
 	sess := x.NewSession()
-	defer sessionRelease(sess)
+	defer sess.Close()
 	if err = sess.Begin(); err != nil {
 		return err
 	}
@@ -276,11 +282,7 @@ func DeleteGPGKey(doer *User, id int64) (err error) {
 		return err
 	}
 
-	if err = sess.Commit(); err != nil {
-		return err
-	}
-
-	return nil
+	return sess.Commit()
 }
 
 // CommitVerification represents a commit validation of signature
@@ -368,9 +370,7 @@ func verifySign(s *packet.Signature, h hash.Hash, k *GPGKey) error {
 
 // ParseCommitWithSignature check if signature is good against keystore.
 func ParseCommitWithSignature(c *git.Commit) *CommitVerification {
-
 	if c.Signature != nil {
-
 		//Parsing signature
 		sig, err := extractSignature(c.Signature.Signature)
 		if err != nil { //Skipping failed to extract sign
@@ -382,8 +382,8 @@ func ParseCommitWithSignature(c *git.Commit) *CommitVerification {
 		}
 
 		//Find Committer account
-		committer, err := GetUserByEmail(c.Committer.Email)
-		if err != nil { //Skipping not user for commiter
+		committer, err := GetUserByEmail(c.Committer.Email) //This find the user by primary email or activated email so commit will not be valid if email is not
+		if err != nil {                                     //Skipping not user for commiter
 			log.Error(3, "NoCommitterAccount: %v", err)
 			return &CommitVerification{
 				Verified: false,
@@ -392,7 +392,7 @@ func ParseCommitWithSignature(c *git.Commit) *CommitVerification {
 		}
 
 		keys, err := ListGPGKeys(committer.ID)
-		if err != nil || len(keys) == 0 { //Skipping failed to get gpg keys of user
+		if err != nil { //Skipping failed to get gpg keys of user
 			log.Error(3, "ListGPGKeys: %v", err)
 			return &CommitVerification{
 				Verified: false,
@@ -400,17 +400,28 @@ func ParseCommitWithSignature(c *git.Commit) *CommitVerification {
 			}
 		}
 
-		//Generating hash of commit
-		hash, err := populateHash(sig.Hash, []byte(c.Signature.Payload))
-		if err != nil { //Skipping ailed to generate hash
-			log.Error(3, "PopulateHash: %v", err)
-			return &CommitVerification{
-				Verified: false,
-				Reason:   "gpg.error.generate_hash",
-			}
-		}
-
 		for _, k := range keys {
+			//Pre-check (& optimization) that emails attached to key can be attached to the commiter email and can validate
+			canValidate := false
+			for _, e := range k.Emails {
+				if e.IsActivated && e.Email == c.Committer.Email {
+					canValidate = true
+					break
+				}
+			}
+			if !canValidate {
+				continue //Skip this key
+			}
+
+			//Generating hash of commit
+			hash, err := populateHash(sig.Hash, []byte(c.Signature.Payload))
+			if err != nil { //Skipping ailed to generate hash
+				log.Error(3, "PopulateHash: %v", err)
+				return &CommitVerification{
+					Verified: false,
+					Reason:   "gpg.error.generate_hash",
+				}
+			}
 			//We get PK
 			if err := verifySign(sig, hash, k); err == nil {
 				return &CommitVerification{ //Everything is ok
@@ -422,6 +433,16 @@ func ParseCommitWithSignature(c *git.Commit) *CommitVerification {
 			}
 			//And test also SubsKey
 			for _, sk := range k.SubsKey {
+
+				//Generating hash of commit
+				hash, err := populateHash(sig.Hash, []byte(c.Signature.Payload))
+				if err != nil { //Skipping ailed to generate hash
+					log.Error(3, "PopulateHash: %v", err)
+					return &CommitVerification{
+						Verified: false,
+						Reason:   "gpg.error.generate_hash",
+					}
+				}
 				if err := verifySign(sig, hash, sk); err == nil {
 					return &CommitVerification{ //Everything is ok
 						Verified:    true,

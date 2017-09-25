@@ -2,34 +2,29 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package integration
+package integrations
 
 import (
-	"os"
+	"net/http"
 	"testing"
 
-	"code.gitea.io/gitea/integrations/internal/utils"
+	"code.gitea.io/gitea/modules/setting"
 )
 
-var signupFormSample map[string][]string = map[string][]string{
-	"Name":   {"tester"},
-	"Email":  {"user1@example.com"},
-	"Passwd": {"12345678"},
-}
-
-func signup(t *utils.T) error {
-	return utils.GetAndPost("http://:"+ServerHTTPPort+"/user/sign_up", signupFormSample)
-}
-
 func TestSignup(t *testing.T) {
-	conf := utils.Config{
-		Program: "../gitea",
-		WorkDir: "",
-		Args:    []string{"web", "--port", ServerHTTPPort},
-		LogFile: os.Stderr,
-	}
+	prepareTestEnv(t)
 
-	if err := utils.New(t, &conf).RunTest(install, signup); err != nil {
-		t.Fatal(err)
-	}
+	setting.Service.EnableCaptcha = false
+
+	req := NewRequestWithValues(t, "POST", "/user/sign_up", map[string]string{
+		"user_name": "exampleUser",
+		"email":     "exampleUser@example.com",
+		"password":  "examplePassword",
+		"retype":    "examplePassword",
+	})
+	MakeRequest(t, req, http.StatusFound)
+
+	// should be able to view new user's page
+	req = NewRequest(t, "GET", "/exampleUser")
+	MakeRequest(t, req, http.StatusOK)
 }

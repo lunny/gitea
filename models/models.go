@@ -24,7 +24,6 @@ import (
 	// Needed for the MSSSQL driver
 	_ "github.com/denisenkom/go-mssqldb"
 
-	"code.gitea.io/gitea/models/migrations"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 )
@@ -32,7 +31,7 @@ import (
 // Engine represents a xorm engine or session.
 type Engine interface {
 	Table(tableNameOrBean interface{}) *xorm.Session
-	Count(interface{}) (int64, error)
+	Count(...interface{}) (int64, error)
 	Decr(column string, arg ...interface{}) *xorm.Session
 	Delete(interface{}) (int64, error)
 	Exec(string, ...interface{}) (sql.Result, error)
@@ -49,13 +48,6 @@ type Engine interface {
 	Where(interface{}, ...interface{}) *xorm.Session
 }
 
-func sessionRelease(sess *xorm.Session) {
-	if !sess.IsCommitedOrRollbacked {
-		sess.Rollback()
-	}
-	sess.Close()
-}
-
 var (
 	x      *xorm.Engine
 	tables []interface{}
@@ -66,6 +58,7 @@ var (
 	// DbCfg holds the database settings
 	DbCfg struct {
 		Type, Host, Name, User, Passwd, Path, SSLMode string
+		Timeout                                       int
 	}
 
 	// EnableSQLite3 use SQLite3
@@ -118,6 +111,9 @@ func init() {
 		new(ProtectedBranch),
 		new(UserOpenID),
 		new(IssueWatch),
+		new(CommitStatus),
+		new(Stopwatch),
+		new(TrackedTime),
 	)
 
 	gonicNames := []string{"SSL", "UID"}
@@ -150,6 +146,7 @@ func LoadConfigs() {
 	}
 	DbCfg.SSLMode = sec.Key("SSL_MODE").String()
 	DbCfg.Path = sec.Key("PATH").MustString("data/gitea.db")
+	DbCfg.Timeout = sec.Key("SQLITE_TIMEOUT").MustInt(500)
 
 	sec = setting.Cfg.Section("indexer")
 	setting.Indexer.IssuePath = sec.Key("ISSUE_INDEXER_PATH").MustString("indexers/issues.bleve")
@@ -219,7 +216,7 @@ func getEngine() (*xorm.Engine, error) {
 		if err := os.MkdirAll(path.Dir(DbCfg.Path), os.ModePerm); err != nil {
 			return nil, fmt.Errorf("Failed to create directories: %v", err)
 		}
-		connStr = "file:" + DbCfg.Path + "?cache=shared&mode=rwc"
+		connStr = fmt.Sprintf("file:%s?cache=shared&mode=rwc&_busy_timeout=%d", DbCfg.Path, DbCfg.Timeout)
 	case "tidb":
 		if !EnableTiDB {
 			return nil, errors.New("this binary version does not build support for TiDB")
@@ -244,6 +241,7 @@ func NewTestEngine(x *xorm.Engine) (err error) {
 
 	x.SetMapper(core.GonicMapper{})
 	x.SetLogger(log.XORMLogger)
+	x.ShowSQL(!setting.ProdMode)
 	return x.StoreEngine("InnoDB").Sync2(tables...)
 }
 
@@ -263,7 +261,7 @@ func SetEngine() (err error) {
 }
 
 // NewEngine initializes a new xorm.Engine
-func NewEngine() (err error) {
+func NewEngine(migrateFunc func(*xorm.Engine) error) (err error) {
 	if err = SetEngine(); err != nil {
 		return err
 	}
@@ -272,7 +270,7 @@ func NewEngine() (err error) {
 		return err
 	}
 
-	if err = migrations.Migrate(x); err != nil {
+	if err = migrateFunc(x); err != nil {
 		return fmt.Errorf("migrate: %v", err)
 	}
 

@@ -143,8 +143,10 @@ func runServ(c *cli.Context) error {
 	reponame := strings.ToLower(strings.TrimSuffix(rr[1], ".git"))
 
 	isWiki := false
+	unitType := models.UnitTypeCode
 	if strings.HasSuffix(reponame, ".wiki") {
 		isWiki = true
+		unitType = models.UnitTypeWiki
 		reponame = reponame[:len(reponame)-5]
 	}
 
@@ -163,8 +165,6 @@ func runServ(c *cli.Context) error {
 		}
 		fail("Internal error", "Failed to get repository owner (%s): %v", username, err)
 	}
-
-	os.Setenv(models.EnvRepoUserSalt, repoUser.Salt)
 
 	repo, err := models.GetRepositoryByName(repoUser.ID, reponame)
 	if err != nil {
@@ -185,7 +185,7 @@ func runServ(c *cli.Context) error {
 		} else if lfsVerb == "download" {
 			requestedMode = models.AccessModeRead
 		} else {
-			fail("Unknown LFS verb", "Unkown lfs verb %s", lfsVerb)
+			fail("Unknown LFS verb", "Unknown lfs verb %s", lfsVerb)
 		}
 	}
 
@@ -248,6 +248,12 @@ func runServ(c *cli.Context) error {
 				fail(clientMessage,
 					"User %s does not have level %v access to repository %s",
 					user.Name, requestedMode, repoPath)
+			}
+
+			if !repo.CheckUnitUser(user.ID, user.IsAdmin, unitType) {
+				fail("You do not have allowed for this action",
+					"User %s does not have allowed access to repository %s 's code",
+					user.Name, repoPath)
 			}
 
 			os.Setenv(models.EnvPusherName, user.Name)

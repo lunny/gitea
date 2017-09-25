@@ -16,8 +16,8 @@
 			OpenID
 		</a>
 	{{end}}
-	<a class="{{if .PageIsSettingsSSHKeys}}active{{end}} item" href="{{AppSubUrl}}/user/settings/ssh">
-		{{.i18n.Tr "settings.ssh_keys"}}
+	<a class="{{if .PageIsSettingsKeys}}active{{end}} item" href="{{AppSubUrl}}/user/settings/keys">
+		{{.i18n.Tr "settings.ssh_gpg_keys"}}
 	</a>
 	<a class="{{if .PageIsSettingsApplications}}active{{end}} item" href="{{AppSubUrl}}/user/settings/applications">
 		{{.i18n.Tr "settings.applications"}}
@@ -27,6 +27,11 @@
 	</a>
 	<a class="{{if .PageIsSettingsAccountLink}}active{{end}} item" href="{{AppSubUrl}}/user/settings/account_link">
 		{{.i18n.Tr "settings.account_link"}}
+	</a>
+	<a class="{{if .PageIsSettingsOrganization}}active{{end}} item" href="{{AppSubUrl}}/user/settings/organization">
+		{{.i18n.Tr "settings.organization"}}
+	<a class="{{if .PageIsSettingsRepos}}active{{end}} item" href="{{AppSubUrl}}/user/settings/repos">
+		{{.i18n.Tr "settings.repos"}}
 	</a>
 	<a class="{{if .PageIsSettingsDelete}}active{{end}} item" href="{{AppSubUrl}}/user/settings/delete">
 		{{.i18n.Tr "settings.delete"}}

@@ -38,14 +38,18 @@ type InstallForm struct {
 	RegisterConfirm bool
 	MailNotify      bool
 
-	OfflineMode             bool
-	DisableGravatar         bool
-	EnableFederatedAvatar   bool
-	DisableRegistration     bool
-	EnableCaptcha           bool
-	RequireSignInView       bool
-	DefaultKeepEmailPrivate bool
-	NoReplyAddress          string
+	OfflineMode                    bool
+	DisableGravatar                bool
+	EnableFederatedAvatar          bool
+	EnableOpenIDSignIn             bool
+	EnableOpenIDSignUp             bool
+	DisableRegistration            bool
+	EnableCaptcha                  bool
+	RequireSignInView              bool
+	DefaultKeepEmailPrivate        bool
+	DefaultAllowCreateOrganization bool
+	DefaultEnableTimetracking      bool
+	NoReplyAddress                 string
 
 	AdminName          string `binding:"OmitEmpty;AlphaDashDot;MaxSize(30)" locale:"install.admin_name"`
 	AdminPasswd        string `binding:"OmitEmpty;MaxSize(255)" locale:"install.admin_password"`
@@ -99,7 +103,7 @@ func (f *SignInForm) Validate(ctx *macaron.Context, errs binding.Errors) binding
 
 // UpdateProfileForm form for updating profile
 type UpdateProfileForm struct {
-	Name             string `binding:"OmitEmpty;MaxSize(35)"`
+	Name             string `binding:"AlphaDashDot;MaxSize(35)"`
 	FullName         string `binding:"MaxSize(100)"`
 	Email            string `binding:"Required;Email;MaxSize(254)"`
 	KeepEmailPrivate bool
@@ -163,14 +167,15 @@ func (f *AddOpenIDForm) Validate(ctx *macaron.Context, errs binding.Errors) bind
 	return validate(errs, ctx.Data, f, ctx.Locale)
 }
 
-// AddSSHKeyForm form for adding SSH key
-type AddSSHKeyForm struct {
+// AddKeyForm form for adding SSH/GPG key
+type AddKeyForm struct {
+	Type    string `binding:"OmitEmpty"`
 	Title   string `binding:"Required;MaxSize(50)"`
 	Content string `binding:"Required"`
 }
 
 // Validate validates the fields
-func (f *AddSSHKeyForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
+func (f *AddKeyForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
 	return validate(errs, ctx.Data, f, ctx.Locale)
 }
 
