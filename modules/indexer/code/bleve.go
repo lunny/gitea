@@ -354,8 +354,7 @@ func (b *BleveIndexer) Search(repoIDs []int64, language, keyword string, page, p
 		}
 		searchResults[i] = &SearchResult{
 			RepoID:      int64(hit.Fields["RepoID"].(float64)),
-			StartIndex:  startIndex,
-			EndIndex:    endIndex,
+			Positions:   []SearchResultPosition{{StartIndex: startIndex, EndIndex: endIndex}},
 			Filename:    filenameOfIndexerID(hit.ID),
 			Content:     hit.Fields["Content"].(string),
 			CommitID:    hit.Fields["CommitID"].(string),

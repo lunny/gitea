@@ -18,11 +18,16 @@ import (
 	"code.gitea.io/gitea/modules/timeutil"
 )
 
+// Highlight position in search result
+type SearchResultPosition struct {
+	StartIndex int
+	EndIndex   int
+}
+
 // SearchResult result of performing a search in a repo
 type SearchResult struct {
 	RepoID      int64
-	StartIndex  int
-	EndIndex    int
+	Positions   []SearchResultPosition
 	Filename    string
 	Content     string
 	CommitID    string

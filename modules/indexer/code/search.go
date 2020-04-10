@@ -72,32 +72,51 @@ func searchResult(result *SearchResult, startIndex, endIndex int) (*Result, erro
 	contentLines := strings.SplitAfter(result.Content[startIndex:endIndex], "\n")
 	lineNumbers := make([]int, len(contentLines))
 	index := startIndex
+	positions := result.Positions
+
 	for i, line := range contentLines {
 		var err error
-		if index < result.EndIndex &&
-			result.StartIndex < index+len(line) &&
-			result.StartIndex < result.EndIndex {
-			openActiveIndex := util.Max(result.StartIndex-index, 0)
-			closeActiveIndex := util.Min(result.EndIndex-index, len(line))
-			err = writeStrings(&formattedLinesBuffer,
-				`<li>`,
-				html.EscapeString(line[:openActiveIndex]),
-				`<span class='active'>`,
-				html.EscapeString(line[openActiveIndex:closeActiveIndex]),
-				`</span>`,
-				html.EscapeString(line[closeActiveIndex:]),
-				`</li>`,
-			)
-		} else {
-			err = writeStrings(&formattedLinesBuffer,
-				`<li>`,
-				html.EscapeString(line),
-				`</li>`,
-			)
-		}
+
+		err = writeStrings(&formattedLinesBuffer, `<li>`)
 		if err != nil {
 			return nil, err
 		}
+
+		pos := 0
+		end := index + len(line)
+
+		for len(positions) > 0 {
+			p := &positions[0]
+			if p.EndIndex <= p.StartIndex || p.EndIndex <= (index + pos) {
+				positions = positions[1:]
+				continue
+			}
+
+			if p.StartIndex >= end {
+				break
+			}
+
+			openActiveIndex := util.Max(p.StartIndex-index, pos)
+			closeActiveIndex := util.Min(p.EndIndex-index, len(line))
+
+			err = writeStrings(&formattedLinesBuffer,
+				html.EscapeString(line[pos:openActiveIndex]),
+				`<span class='active'>`,
+				html.EscapeString(line[openActiveIndex:closeActiveIndex]),
+				`</span>`,
+			)
+
+			if err != nil {
+				return nil, err
+			}
+
+			pos = closeActiveIndex
+		}
+
+		err = writeStrings(&formattedLinesBuffer,
+			html.EscapeString(line[pos:]),
+			`</li>`,
+		)
 
 		lineNumbers[i] = startLineNum + i
 		index += len(line)
@@ -129,7 +148,7 @@ func PerformSearch(repoIDs []int64, language, keyword string, page, pageSize int
 	displayResults := make([]*Result, len(results))
 
 	for i, result := range results {
-		startIndex, endIndex := indices(result.Content, result.StartIndex, result.EndIndex)
+		startIndex, endIndex := indices(result.Content, result.Positions[0].StartIndex, result.Positions[len(result.Positions)-1].EndIndex)
 		displayResults[i], err = searchResult(result, startIndex, endIndex)
 		if err != nil {
 			return 0, nil, nil, err

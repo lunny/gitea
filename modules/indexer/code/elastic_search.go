@@ -220,29 +220,6 @@ func (b *ElasticSearchIndexer) Delete(repoID int64) error {
 func convertResult(searchResult *elastic.SearchResult, kw string, pageSize int) (int64, []*SearchResult, []*SearchResultLanguages, error) {
 	hits := make([]*SearchResult, 0, pageSize)
 	for _, hit := range searchResult.Hits.Hits {
-		// FIXME: There is no way to get the position the keyword on the content currently on the same request.
-		// So we get it from content, this may made the query slower. See
-		// https://discuss.elastic.co/t/fetching-position-of-keyword-in-matched-document/94291
-		var startIndex, endIndex int = -1, -1
-		c, ok := hit.Highlight["content"]
-		if ok && len(c) > 0 {
-			var subStr = make([]rune, 0, len(kw))
-			startIndex = strings.IndexFunc(c[0], func(r rune) bool {
-				if len(subStr) >= len(kw) {
-					subStr = subStr[1:]
-				}
-				subStr = append(subStr, r)
-				return strings.EqualFold(kw, string(subStr))
-			})
-			if startIndex > -1 {
-				endIndex = startIndex + len(kw)
-			} else {
-				panic(fmt.Sprintf("1===%#v", hit.Highlight))
-			}
-		} else {
-			panic(fmt.Sprintf("2===%#v", hit.Highlight))
-		}
-
 		repoID, fileName := parseIndexerID(hit.Id)
 		var res = make(map[string]interface{})
 		if err := json.Unmarshal(hit.Source, &res); err != nil {
@@ -250,18 +227,74 @@ func convertResult(searchResult *elastic.SearchResult, kw string, pageSize int) 
 		}
 
 		language := res["language"].(string)
+		commitId := res["commit_id"].(string)
+		content := res["content"].(string)
+		updateUnix := timeutil.TimeStamp(res["updated_at"].(float64))
+		color := enry.GetColor(language)
 
-		hits = append(hits, &SearchResult{
-			RepoID:      repoID,
-			Filename:    fileName,
-			CommitID:    res["commit_id"].(string),
-			Content:     res["content"].(string),
-			UpdatedUnix: timeutil.TimeStamp(res["updated_at"].(float64)),
-			Language:    language,
-			StartIndex:  startIndex,
-			EndIndex:    endIndex,
-			Color:       enry.GetColor(language),
-		})
+		c, ok := hit.Highlight["content"]
+		if ok && len(c) > 0 {
+			for _, p := range c {
+				s := strings.FieldsFunc(p, func(r rune) bool { return r == ':' })
+
+				if len(s) != 3 {
+					continue
+				}
+
+				s = strings.FieldsFunc(s[1], func(r rune) bool { return r == ',' })
+
+				pm := map[int]int{}
+				pl := make([]SearchResultPosition, 0)
+
+				for _, r := range s {
+					rr := strings.FieldsFunc(r, func(r rune) bool { return r == '-' })
+					if len(rr) != 2 {
+						continue
+					}
+
+					start, e1 := strconv.Atoi(rr[0])
+					end, e2 := strconv.Atoi(rr[1])
+					if e1 != nil || e2 != nil {
+						continue
+					}
+
+					pm[start] = -1
+					pm[end] = -1
+
+					pl = append(pl, SearchResultPosition{StartIndex: start, EndIndex: end})
+				}
+
+				if len(pl) == 0 {
+					continue
+				}
+
+				idx := 0
+				for cp, _ := range content {
+					_, ok := pm[idx]
+					if ok {
+						pm[idx] = cp
+					}
+					idx++
+				}
+
+				for i := range pl {
+					p := &pl[i]
+					p.StartIndex = pm[p.StartIndex]
+					p.EndIndex = pm[p.EndIndex]
+				}
+
+				hits = append(hits, &SearchResult{
+					RepoID:      repoID,
+					Filename:    fileName,
+					CommitID:    commitId,
+					Content:     content,
+					UpdatedUnix: updateUnix,
+					Language:    language,
+					Positions:   pl,
+					Color:       color,
+				})
+			}
+		}
 	}
 
 	return searchResult.TotalHits(), hits, extractAggs(searchResult), nil
@@ -286,7 +319,12 @@ func extractAggs(searchResult *elastic.SearchResult) []*SearchResultLanguages {
 
 // Search searches for codes and language stats by given conditions.
 func (b *ElasticSearchIndexer) Search(repoIDs []int64, language, keyword string, page, pageSize int) (int64, []*SearchResult, []*SearchResultLanguages, error) {
-	kwQuery := elastic.NewMultiMatchQuery(keyword, "content")
+	kwQuery := elastic.NewQueryStringQuery(keyword).
+		Field("content").
+		Fuzziness("AUTO").
+		AnalyzeWildcard(true).
+		Lenient(true)
+
 	query := elastic.NewBoolQuery()
 	query = query.Must(kwQuery)
 	if len(repoIDs) > 0 {
@@ -308,12 +346,17 @@ func (b *ElasticSearchIndexer) Search(repoIDs []int64, language, keyword string,
 		start = (page - 1) * pageSize
 	}
 
+	highlight := elastic.NewHighlight().
+		Fields(elastic.NewHighlighterField("content").
+			HighlighterType("experimental").
+			Options(map[string]interface{}{"return_offsets": true}))
+
 	if len(language) == 0 {
 		searchResult, err := b.client.Search().
 			Index(b.indexerName).
 			Aggregation("language", aggregation).
 			Query(query).
-			Highlight(elastic.NewHighlight().Field("content")).
+			Highlight(highlight).
 			Sort("repo_id", true).
 			From(start).Size(pageSize).
 			Do(context.Background())
@@ -339,7 +382,7 @@ func (b *ElasticSearchIndexer) Search(repoIDs []int64, language, keyword string,
 	searchResult, err := b.client.Search().
 		Index(b.indexerName).
 		Query(query).
-		Highlight(elastic.NewHighlight().Field("content")).
+		Highlight(highlight).
 		Sort("repo_id", true).
 		From(start).Size(pageSize).
 		Do(context.Background())
