@@ -13,7 +13,7 @@ import (
 )
 
 // Service settings
-var Service struct {
+var Service = struct {
 	DefaultOrgVisibility                    string
 	DefaultOrgVisibilityMode                structs.VisibleType
 	ActiveCodeLives                         int
@@ -66,6 +66,10 @@ var Service struct {
 		RequireSigninView bool `ini:"REQUIRE_SIGNIN_VIEW"`
 		DisableUsersPage  bool `ini:"DISABLE_USERS_PAGE"`
 	} `ini:"service.explore"`
+	// Teabot settings
+	EnableTeabot bool
+}{
+	EnableTeabot: true,
 }
 
 func newService() {

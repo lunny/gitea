@@ -1,0 +1,170 @@
+// Copyright 2020 The Gitea Authors. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+package bot
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"code.gitea.io/gitea/models"
+	"code.gitea.io/gitea/modules/bot/model"
+	"code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/log"
+	"code.gitea.io/gitea/modules/notification/base"
+	"code.gitea.io/gitea/modules/repository"
+)
+
+type botNotifier struct {
+	base.NullNotifier
+}
+
+var (
+	_ base.Notifier = &botNotifier{}
+)
+
+// NewNotifier create a new botNotifier notifier
+func NewNotifier() base.Notifier {
+	return &botNotifier{}
+}
+
+func loadBotFiles(repo *models.Repository, ref string) (git.Entries, error) {
+	gitRepo, err := git.OpenRepository(repo.RepoPath())
+	if err != nil {
+		return nil, err
+	}
+	defer gitRepo.Close()
+
+	// Get the commit object for the ref
+	commit, err := gitRepo.GetCommit(ref)
+	if err != nil {
+		return nil, err
+	}
+	commitID := commit.ID.String()
+	if len(ref) >= 4 && strings.HasPrefix(commitID, ref) {
+		ref = commit.ID.String()
+	}
+
+	tree := git.NewTree(gitRepo, commit.ID)
+	t, err := tree.SubTree(".gitea/bots")
+	if err != nil {
+		return nil, err
+	}
+	return t.ListEntriesRecursive()
+}
+
+func (a *botNotifier) NotifyNewIssue(issue *models.Issue) {
+	fmt.Println("-----------------", issue)
+	err := issue.LoadRepo()
+	if err != nil {
+		log.Error("issue.LoadRepo: %v", err)
+		return
+	}
+	var ref = issue.Ref
+	if ref == "" {
+		ref = issue.Repo.DefaultBranch
+	}
+
+	entries, err := loadBotFiles(issue.Repo, ref)
+	if err != nil {
+		log.Error("loadBotFiles: %v", err)
+		return
+	}
+
+	for _, entry := range entries {
+		blob := entry.Blob()
+		rd, err := blob.DataAsync()
+		if err != nil {
+			log.Error("DataAsync: %v", err)
+			return
+		}
+		defer rd.Close()
+		wf, err := model.ReadWorkflow(rd)
+		if err != nil {
+			log.Error("ReadWorkflow: %v", err)
+			return
+		}
+		when := wf.When()
+		if !when.Match(models.HookEventIssues) {
+			continue
+		}
+
+		var content = map[string]interface{}{
+			"issue_index": issue.Index,
+		}
+		bs, err := json.Marshal(content)
+		if err != nil {
+			log.Error("NotifyNewIssue: %v", err)
+			return
+		}
+		if err := models.InsertBotTask(&models.BotTask{
+			RepoID:  issue.RepoID,
+			Event:   "",
+			Status:  models.BotTaskPending,
+			Content: string(bs),
+		}); err != nil {
+			log.Error("NotifyNewIssue: %v", err)
+		}
+	}
+}
+
+// NotifyIssueChangeStatus notifies close or reopen issue to notifiers
+func (a *botNotifier) NotifyIssueChangeStatus(doer *models.User, issue *models.Issue, actionComment *models.Comment, closeOrReopen bool) {
+}
+
+// NotifyCreateIssueComment notifies comment on an issue to notifiers
+func (a *botNotifier) NotifyCreateIssueComment(doer *models.User, repo *models.Repository,
+	issue *models.Issue, comment *models.Comment) {
+}
+
+func (a *botNotifier) NotifyNewPullRequest(pull *models.PullRequest) {
+}
+
+func (a *botNotifier) NotifyRenameRepository(doer *models.User, repo *models.Repository, oldRepoName string) {
+}
+
+func (a *botNotifier) NotifyTransferRepository(doer *models.User, repo *models.Repository, oldOwnerName string) {
+
+}
+
+func (a *botNotifier) NotifyCreateRepository(doer *models.User, u *models.User, repo *models.Repository) {
+}
+
+func (a *botNotifier) NotifyForkRepository(doer *models.User, oldRepo, repo *models.Repository) {
+}
+
+func (a *botNotifier) NotifyPullRequestReview(pr *models.PullRequest, review *models.Review, comment *models.Comment) {
+}
+
+func (*botNotifier) NotifyMergePullRequest(pr *models.PullRequest, doer *models.User) {
+}
+
+func (a *botNotifier) NotifyPushCommits(pusher *models.User, repo *models.Repository, opts *repository.PushUpdateOptions, commits *repository.PushCommits) {
+
+}
+
+func (a *botNotifier) NotifyCreateRef(doer *models.User, repo *models.Repository, refType, refFullName string) {
+
+}
+
+func (a *botNotifier) NotifyDeleteRef(doer *models.User, repo *models.Repository, refType, refFullName string) {
+
+}
+
+func (a *botNotifier) NotifySyncPushCommits(pusher *models.User, repo *models.Repository, opts *repository.PushUpdateOptions, commits *repository.PushCommits) {
+
+}
+
+func (a *botNotifier) NotifySyncCreateRef(doer *models.User, repo *models.Repository, refType, refFullName string) {
+
+}
+
+func (a *botNotifier) NotifySyncDeleteRef(doer *models.User, repo *models.Repository, refType, refFullName string) {
+
+}
+
+func (a *botNotifier) NotifyNewRelease(rel *models.Release) {
+
+}
