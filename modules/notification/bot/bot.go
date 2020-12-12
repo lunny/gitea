@@ -7,7 +7,6 @@ package bot
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/modules/bot/model"
@@ -42,17 +41,11 @@ func loadBotFiles(repo *models.Repository, ref string) (git.Entries, error) {
 	if err != nil {
 		return nil, err
 	}
-	commitID := commit.ID.String()
-	if len(ref) >= 4 && strings.HasPrefix(commitID, ref) {
-		ref = commit.ID.String()
-	}
-
-	tree := git.NewTree(gitRepo, commit.ID)
-	t, err := tree.SubTree(".gitea/bots")
+	t, err := commit.Tree.GetTreeEntryByPath(".gitea/bots")
 	if err != nil {
 		return nil, err
 	}
-	return t.ListEntriesRecursive()
+	return t.Tree().ListEntriesRecursive()
 }
 
 func (a *botNotifier) NotifyNewIssue(issue *models.Issue) {

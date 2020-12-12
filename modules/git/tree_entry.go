@@ -114,6 +114,10 @@ func (te *TreeEntry) GetSubJumpablePathName() string {
 	return te.Name()
 }
 
+func (te *TreeEntry) Tree() *Tree {
+	return te.ptree
+}
+
 // Entries a list of entry
 type Entries []*TreeEntry
 
