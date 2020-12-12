@@ -29,20 +29,25 @@ const (
 	BotTaskRunning
 	BotTaskFailed
 	BotTaskFinished
+	BotTaskCanceled
+	BotTaskTimeout
 )
 
 // BotTask represnets bot tasks
 type BotTask struct {
-	ID       int64
-	Event    string
-	WorkerID int64 `xorm:"index"`
-	RepoID   int64 `xorm:"index"`
-	Branch   string
-	PullID   int64
-	Status   BotTaskStatus
-	Content  string             `xorm:"BIGTEXT"`
-	Created  timeutil.TimeStamp `xorm:"created"`
-	Updated  timeutil.TimeStamp `xorm:"updated"`
+	ID           int64
+	RepoID       int64 `xorm:"index"`
+	Ref string
+	CommitID string
+	Event        string
+	EventPayload string `xorm:"LONGTEXT"`
+	WorkerID     int64  `xorm:"index"`
+	Status       BotTaskStatus
+	Content      string             `xorm:"LONGTEXT"`
+	Created      timeutil.TimeStamp `xorm:"created"`
+	StartTime timeutil.TimeStamp
+	EndTime timeutil.TimeStamp
+	Updated      timeutil.TimeStamp `xorm:"updated"`
 }
 
 // InsertBotTask inserts a bot task

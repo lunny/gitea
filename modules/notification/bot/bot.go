@@ -6,7 +6,6 @@ package bot
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/modules/bot/model"
@@ -41,15 +40,14 @@ func loadBotFiles(repo *models.Repository, ref string) (git.Entries, error) {
 	if err != nil {
 		return nil, err
 	}
-	t, err := commit.Tree.GetTreeEntryByPath(".gitea/bots")
+	tree, err := commit.SubTree(".gitea/bots")
 	if err != nil {
 		return nil, err
 	}
-	return t.Tree().ListEntriesRecursive()
+	return tree.ListEntries()
 }
 
 func (a *botNotifier) NotifyNewIssue(issue *models.Issue) {
-	fmt.Println("-----------------", issue)
 	err := issue.LoadRepo()
 	if err != nil {
 		log.Error("issue.LoadRepo: %v", err)
@@ -76,27 +74,35 @@ func (a *botNotifier) NotifyNewIssue(issue *models.Issue) {
 		defer rd.Close()
 		wf, err := model.ReadWorkflow(rd)
 		if err != nil {
-			log.Error("ReadWorkflow: %v", err)
-			return
+			log.Error("ReadWorkflow file %s failed: %v", entry.Name(), err)
+			continue
 		}
+
 		when := wf.When()
 		if !when.Match(models.HookEventIssues) {
 			continue
 		}
 
-		var content = map[string]interface{}{
+		wfBs, err := json.Marshal(wf)
+		if err != nil {
+			log.Error("NotifyNewIssue: %v", err)
+			return
+		}
+
+		var payload = map[string]interface{}{
 			"issue_index": issue.Index,
 		}
-		bs, err := json.Marshal(content)
+		bs, err := json.Marshal(payload)
 		if err != nil {
 			log.Error("NotifyNewIssue: %v", err)
 			return
 		}
 		if err := models.InsertBotTask(&models.BotTask{
 			RepoID:  issue.RepoID,
-			Event:   "",
+			Event:   string(models.HookEventIssues),
+			EventPayload: string(bs),
 			Status:  models.BotTaskPending,
-			Content: string(bs),
+			Content: string(wfBs),
 		}); err != nil {
 			log.Error("NotifyNewIssue: %v", err)
 		}
