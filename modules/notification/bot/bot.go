@@ -47,7 +47,7 @@ func loadBotFiles(repo *models.Repository, ref string) (git.Entries, error) {
 	return tree.ListEntries()
 }
 
-func (a *botNotifier) NotifyNewIssue(issue *models.Issue) {
+func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.User) {
 	err := issue.LoadRepo()
 	if err != nil {
 		log.Error("issue.LoadRepo: %v", err)
@@ -98,11 +98,11 @@ func (a *botNotifier) NotifyNewIssue(issue *models.Issue) {
 			return
 		}
 		if err := models.InsertBotTask(&models.BotTask{
-			RepoID:  issue.RepoID,
-			Event:   string(models.HookEventIssues),
+			RepoID:       issue.RepoID,
+			Event:        string(models.HookEventIssues),
 			EventPayload: string(bs),
-			Status:  models.BotTaskPending,
-			Content: string(wfBs),
+			Status:       models.BotTaskPending,
+			Content:      string(wfBs),
 		}); err != nil {
 			log.Error("NotifyNewIssue: %v", err)
 		}
@@ -115,10 +115,10 @@ func (a *botNotifier) NotifyIssueChangeStatus(doer *models.User, issue *models.I
 
 // NotifyCreateIssueComment notifies comment on an issue to notifiers
 func (a *botNotifier) NotifyCreateIssueComment(doer *models.User, repo *models.Repository,
-	issue *models.Issue, comment *models.Comment) {
+	issue *models.Issue, comment *models.Comment, mentions []*models.User) {
 }
 
-func (a *botNotifier) NotifyNewPullRequest(pull *models.PullRequest) {
+func (a *botNotifier) NotifyNewPullRequest(pull *models.PullRequest, mentions []*models.User) {
 }
 
 func (a *botNotifier) NotifyRenameRepository(doer *models.User, repo *models.Repository, oldRepoName string) {
@@ -134,7 +134,7 @@ func (a *botNotifier) NotifyCreateRepository(doer *models.User, u *models.User, 
 func (a *botNotifier) NotifyForkRepository(doer *models.User, oldRepo, repo *models.Repository) {
 }
 
-func (a *botNotifier) NotifyPullRequestReview(pr *models.PullRequest, review *models.Review, comment *models.Comment) {
+func (a *botNotifier) NotifyPullRequestReview(pr *models.PullRequest, review *models.Review, comment *models.Comment, mentions []*models.User) {
 }
 
 func (*botNotifier) NotifyMergePullRequest(pr *models.PullRequest, doer *models.User) {

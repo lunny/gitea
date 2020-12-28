@@ -77,6 +77,7 @@ import (
 	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/web"
 	"code.gitea.io/gitea/routers/api/v1/admin"
+	"code.gitea.io/gitea/routers/api/v1/bot"
 	"code.gitea.io/gitea/routers/api/v1/misc"
 	"code.gitea.io/gitea/routers/api/v1/notify"
 	"code.gitea.io/gitea/routers/api/v1/org"
@@ -1053,6 +1054,12 @@ func Routes() *web.Route {
 
 		m.Group("/topics", func() {
 			m.Get("/search", repo.TopicSearch)
+		})
+
+		m.Group("/bot", func() {
+			m.Get("/task", bot.GetTask)
+			m.Post("/task", bot.UpdateTask)
+			m.Post("/task/log", bot.UploadLog)
 		})
 	}, sudo())
 
