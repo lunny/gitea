@@ -265,7 +265,7 @@ func (comment *Comment) neuterCrossReferences(e Engine) error {
 
 // LoadRefComment loads comment that created this reference from database
 func (comment *Comment) LoadRefComment() (err error) {
-	if comment.RefComment != nil {
+	if comment.RefComment != nil || comment.RefCommentID <= 0 {
 		return nil
 	}
 	comment.RefComment, err = GetCommentByID(comment.RefCommentID)
