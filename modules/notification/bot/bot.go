@@ -98,6 +98,8 @@ func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.Use
 			EventPayload: string(bs),
 			Status:       models.BotTaskPending,
 			Content:      content,
+			Ref:          ref,
+			CommitID:     commit.ID.String(),
 		}); err != nil {
 			log.Error("InsertBotTask: %v", err)
 		}

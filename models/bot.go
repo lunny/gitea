@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"code.gitea.io/gitea/modules/timeutil"
+	uuid "github.com/google/uuid"
 )
 
 func init() {
@@ -79,6 +80,7 @@ const (
 // BotTask represnets bot tasks
 type BotTask struct {
 	ID           int64
+	UUID         string `xorm:"CHAR(36)"`
 	RepoID       int64  `xorm:"index"`
 	Type         string `xorm:"VARCHAR(16)"`
 	Ref          string
@@ -98,17 +100,55 @@ type BotTask struct {
 
 // InsertBotTask inserts a bot task
 func InsertBotTask(t *BotTask) error {
+	if t.UUID == "" {
+		t.UUID = uuid.New().String()
+	}
 	_, err := x.Insert(t)
 	return err
 }
 
-// GetBotTasks returns all the tasks for the bot
-func GetBotTasks(botRunnerID int64) ([]BotTask, error) {
+// UpdateBotTask updates bot task
+func UpdateBotTask(t *BotTask, cols ...string) error {
+	_, err := x.ID(t.ID).Cols(cols...).Update(t)
+	return err
+}
+
+// ErrBotTaskNotExist represents an error for bot task not exist
+type ErrBotTaskNotExist struct {
+	UUID string
+}
+
+func (err ErrBotTaskNotExist) Error() string {
+	return fmt.Sprintf("Bot task [%s] is not exist", err.UUID)
+}
+
+// GetBotTaskByUUID gets bot task by uuid
+func GetBotTaskByUUID(botTaskUUID string) (*BotTask, error) {
+	var task BotTask
+	has, err := x.Where("uuid=?", botTaskUUID).Get(&task)
+	if err != nil {
+		return nil, err
+	} else if !has {
+		return nil, ErrBotTaskNotExist{
+			UUID: botTaskUUID,
+		}
+	}
+	return &task, nil
+}
+
+// GetBotTask return the task for the bot
+func GetBotTask(botRunnerID int64) (*BotTask, error) {
 	var tasks []BotTask
 	// FIXME: for test, just return all tasks
 	err := x.Where("status=?", BotTaskPending).Find(&tasks)
 	//err := x.Where("runner_id = ?", botID).
 	// And("status=?", BotTaskPending).
 	// Find(&tasks)
-	return tasks, err
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+	return &tasks[0], err
 }

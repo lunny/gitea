@@ -1058,8 +1058,8 @@ func Routes() *web.Route {
 
 		m.Group("/bot", func() {
 			m.Get("/task", bot.GetTask)
-			m.Post("/task", bot.UpdateTask)
-			m.Post("/task/log", bot.UploadLog)
+			m.Post("/task/:uuid", bot.UpdateTask)
+			m.Post("/task/:uuid/log", bot.UploadLog)
 		})
 	}, sudo())
 
