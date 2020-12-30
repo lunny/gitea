@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 
 	"code.gitea.io/gitea/models"
-	"code.gitea.io/gitea/modules/bot/model"
+	"code.gitea.io/gitea/modules/bot/runner"
 	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/notification/base"
@@ -58,35 +58,29 @@ func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.Use
 		ref = issue.Repo.DefaultBranch
 	}
 
-	entries, err := loadBotFiles(issue.Repo, ref)
+	gitRepo, err := git.OpenRepository(issue.Repo.RepoPath())
 	if err != nil {
-		log.Error("loadBotFiles: %v", err)
+		log.Error("issue.LoadRepo: %v", err)
+		return
+	}
+	defer gitRepo.Close()
+
+	// Get the commit object for the ref
+	commit, err := gitRepo.GetCommit(ref)
+	if err != nil {
+		log.Error("issue.LoadRepo: %v", err)
 		return
 	}
 
-	for _, entry := range entries {
-		blob := entry.Blob()
-		rd, err := blob.DataAsync()
+	runnerTypes := runner.GetRunnerTypes()
+	for _, rt := range runnerTypes {
+		found, content, err := rt.Detect(commit, models.HookEventIssues, ref)
 		if err != nil {
-			log.Error("DataAsync: %v", err)
+			log.Error("wt.Detect: %v", err)
 			return
 		}
-		defer rd.Close()
-		wf, err := model.ReadWorkflow(rd)
-		if err != nil {
-			log.Error("ReadWorkflow file %s failed: %v", entry.Name(), err)
+		if !found {
 			continue
-		}
-
-		when := wf.When()
-		if !when.Match(models.HookEventIssues) {
-			continue
-		}
-
-		wfBs, err := json.Marshal(wf)
-		if err != nil {
-			log.Error("NotifyNewIssue: %v", err)
-			return
 		}
 
 		var payload = map[string]interface{}{
@@ -99,12 +93,13 @@ func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.Use
 		}
 		if err := models.InsertBotTask(&models.BotTask{
 			RepoID:       issue.RepoID,
+			Type:         rt.Name(),
 			Event:        string(models.HookEventIssues),
 			EventPayload: string(bs),
 			Status:       models.BotTaskPending,
-			Content:      string(wfBs),
+			Content:      content,
 		}); err != nil {
-			log.Error("NotifyNewIssue: %v", err)
+			log.Error("InsertBotTask: %v", err)
 		}
 	}
 }

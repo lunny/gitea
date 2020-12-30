@@ -11,43 +11,56 @@ import (
 )
 
 func init() {
-	tables = append(tables, new(BotWorker), new(BotTask))
+	tables = append(tables, new(BotRunner), new(BotTask))
 }
 
-// ErrBotWorkerNotExist represents an error for bot worker not exist
-type ErrBotWorkerNotExist struct {
+// ErrBotRunnerNotExist represents an error for bot runner not exist
+type ErrBotRunnerNotExist struct {
 	UUID string
 }
 
-func (err ErrBotWorkerNotExist) Error() string {
-	return fmt.Sprintf("Bot worker [%s] is not exist", err.UUID)
+func (err ErrBotRunnerNotExist) Error() string {
+	return fmt.Sprintf("Bot runner [%s] is not exist", err.UUID)
 }
 
-// BotWorker represents worker machines
-type BotWorker struct {
+// BotRunner represents runner machines
+type BotRunner struct {
 	ID          int64
 	UUID        string `xorm:"CHAR(36) UNIQUE"`
 	Name        string `xorm:"VARCHAR(32) UNIQUE"`
-	OrgID       int64  `xorm:"index"` // org level worker
-	RepoID      int64  `xorm:"index"` // repo level worker, if orgid also is zero, then it's a global
+	Type        string `xorm:"VARCHAR(16)"`
+	OwnerID     int64  `xorm:"index"` // org level runner
+	RepoID      int64  `xorm:"index"` // repo level runner, if orgid also is zero, then it's a global
 	Description string `xorm:"TEXT"`
 	Token       string
 	LastOnline  timeutil.TimeStamp
 	Created     timeutil.TimeStamp `xorm:"created"`
 }
 
-// GetBotWorkerByUUID returns a bot worker via uuid
-func GetBotWorkerByUUID(uuid string) (*BotWorker, error) {
-	var worker BotWorker
-	has, err := x.Where("uuid=?", uuid).Get(&worker)
+// GetBotRunnerByUUID returns a bot runner via uuid
+func GetBotRunnerByUUID(uuid string) (*BotRunner, error) {
+	var runner BotRunner
+	has, err := x.Where("uuid=?", uuid).Get(&runner)
 	if err != nil {
 		return nil, err
 	} else if !has {
-		return nil, ErrBotWorkerNotExist{
+		return nil, ErrBotRunnerNotExist{
 			UUID: uuid,
 		}
 	}
-	return &worker, nil
+	return &runner, nil
+}
+
+// FindRunnersByRepoID returns all workers for the repository
+func FindRunnersByRepoID(repoID int64) ([]*BotRunner, error) {
+	var runners []*BotRunner
+	err := x.Where("repo_id=? OR repo_id=0", repoID).
+		Find(&runners)
+	if err != nil {
+		return nil, err
+	}
+	err = x.Join("INNER", "repository", "repository.owner_id = bot_worker.owner_id").Find(&runners)
+	return runners, err
 }
 
 // BotTaskStatus represents a task status
@@ -66,14 +79,15 @@ const (
 // BotTask represnets bot tasks
 type BotTask struct {
 	ID           int64
-	RepoID       int64 `xorm:"index"`
+	RepoID       int64  `xorm:"index"`
+	Type         string `xorm:"VARCHAR(16)"`
 	Ref          string
 	CommitID     string
 	Event        string
 	Token        string // token for this task
 	Grant        string // permissions for this task
 	EventPayload string `xorm:"LONGTEXT"`
-	WorkerID     int64  `xorm:"index"`
+	RunnerID     int64  `xorm:"index"`
 	Status       BotTaskStatus
 	Content      string             `xorm:"LONGTEXT"`
 	Created      timeutil.TimeStamp `xorm:"created"`
@@ -89,11 +103,11 @@ func InsertBotTask(t *BotTask) error {
 }
 
 // GetBotTasks returns all the tasks for the bot
-func GetBotTasks(botID int64) ([]BotTask, error) {
+func GetBotTasks(botRunnerID int64) ([]BotTask, error) {
 	var tasks []BotTask
 	// FIXME: for test, just return all tasks
 	err := x.Where("status=?", BotTaskPending).Find(&tasks)
-	//err := x.Where("worker_id = ?", botID).
+	//err := x.Where("runner_id = ?", botID).
 	// And("status=?", BotTaskPending).
 	// Find(&tasks)
 	return tasks, err

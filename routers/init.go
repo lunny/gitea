@@ -13,6 +13,7 @@ import (
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/models/migrations"
 	"code.gitea.io/gitea/modules/auth/sso"
+	"code.gitea.io/gitea/modules/bot"
 	"code.gitea.io/gitea/modules/cache"
 	"code.gitea.io/gitea/modules/cron"
 	"code.gitea.io/gitea/modules/eventsource"
@@ -54,6 +55,9 @@ func NewServices() {
 	setting.NewServices()
 	if err := storage.Init(); err != nil {
 		log.Fatal("storage init failed: %v", err)
+	}
+	if err := bot.Init(); err != nil {
+		log.Fatal("bot init failed: %v", err)
 	}
 	if err := repository.NewContext(); err != nil {
 		log.Fatal("repository init failed: %v", err)
