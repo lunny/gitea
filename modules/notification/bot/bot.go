@@ -28,26 +28,7 @@ func NewNotifier() base.Notifier {
 	return &botNotifier{}
 }
 
-func loadBotFiles(repo *models.Repository, ref string) (git.Entries, error) {
-	gitRepo, err := git.OpenRepository(repo.RepoPath())
-	if err != nil {
-		return nil, err
-	}
-	defer gitRepo.Close()
-
-	// Get the commit object for the ref
-	commit, err := gitRepo.GetCommit(ref)
-	if err != nil {
-		return nil, err
-	}
-	tree, err := commit.SubTree(".gitea/bots")
-	if err != nil {
-		return nil, err
-	}
-	return tree.ListEntries()
-}
-
-func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.User) {
+func notifyIssue(issue *models.Issue, evt models.HookEventType, payload string) {
 	err := issue.LoadRepo()
 	if err != nil {
 		log.Error("issue.LoadRepo: %v", err)
@@ -74,7 +55,7 @@ func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.Use
 
 	runnerTypes := runner.GetRunnerTypes()
 	for _, rt := range runnerTypes {
-		found, content, err := rt.Detect(commit, models.HookEventIssues, ref)
+		found, content, err := rt.Detect(commit, evt, ref)
 		if err != nil {
 			log.Error("wt.Detect: %v", err)
 			return
@@ -83,19 +64,11 @@ func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.Use
 			continue
 		}
 
-		var payload = map[string]interface{}{
-			"issue_index": issue.Index,
-		}
-		bs, err := json.Marshal(payload)
-		if err != nil {
-			log.Error("NotifyNewIssue: %v", err)
-			return
-		}
 		if err := models.InsertBotTask(&models.BotTask{
 			RepoID:       issue.RepoID,
 			Type:         rt.Name(),
-			Event:        string(models.HookEventIssues),
-			EventPayload: string(bs),
+			Event:        string(evt),
+			EventPayload: payload,
 			Status:       models.BotTaskPending,
 			Content:      content,
 			Ref:          ref,
@@ -106,8 +79,34 @@ func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.Use
 	}
 }
 
+// TODO: implement all events
+func (a *botNotifier) NotifyNewIssue(issue *models.Issue) {
+	var payload = map[string]interface{}{
+		"issue_index": issue.Index,
+	}
+	bs, err := json.Marshal(payload)
+	if err != nil {
+		log.Error("NotifyNewIssue: %v", err)
+		return
+	}
+	notifyIssue(issue, models.HookEventIssues, string(bs))
+}
+
 // NotifyIssueChangeStatus notifies close or reopen issue to notifiers
 func (a *botNotifier) NotifyIssueChangeStatus(doer *models.User, issue *models.Issue, actionComment *models.Comment, closeOrReopen bool) {
+}
+
+func (a *botNotifier) NotifyIssueChangeLabels(doer *models.User, issue *models.Issue,
+	addedLabels []*models.Label, removedLabels []*models.Label) {
+	var payload = map[string]interface{}{
+		"issue_index": issue.Index,
+	}
+	bs, err := json.Marshal(payload)
+	if err != nil {
+		log.Error("NotifyNewIssue: %v", err)
+		return
+	}
+	notifyIssue(issue, models.HookEventIssueLabel, string(bs))
 }
 
 // NotifyCreateIssueComment notifies comment on an issue to notifiers
