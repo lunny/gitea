@@ -80,7 +80,7 @@ func notifyIssue(issue *models.Issue, evt models.HookEventType, payload string) 
 }
 
 // TODO: implement all events
-func (a *botNotifier) NotifyNewIssue(issue *models.Issue) {
+func (a *botNotifier) NotifyNewIssue(issue *models.Issue, mentions []*models.User) {
 	var payload = map[string]interface{}{
 		"issue_index": issue.Index,
 	}
