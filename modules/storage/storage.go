@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"code.gitea.io/gitea/modules/log"
+	"code.gitea.io/gitea/modules/services"
 	"code.gitea.io/gitea/modules/setting"
 )
 
@@ -117,6 +118,10 @@ var (
 	// RepoAvatars represents repository avatars storage
 	RepoAvatars ObjectStorage
 )
+
+func init() {
+	services.RegisterService("storage", Init)
+}
 
 // Init init the stoarge
 func Init() error {

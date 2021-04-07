@@ -24,6 +24,7 @@ import (
 
 	"code.gitea.io/gitea/modules/generate"
 	"code.gitea.io/gitea/modules/log"
+	"code.gitea.io/gitea/modules/services"
 	"code.gitea.io/gitea/modules/user"
 	"code.gitea.io/gitea/modules/util"
 
@@ -1165,7 +1166,7 @@ func MakeManifestData(appName string, appURL string, absoluteAssetURL string) []
 }
 
 // NewServices initializes the services
-func NewServices() {
+func NewServices() error {
 	InitDBConfig()
 	newService()
 	NewLogServices(false)
@@ -1181,4 +1182,9 @@ func NewServices() {
 	newTaskService()
 	NewQueueService()
 	newProject()
+	return nil
+}
+
+func init() {
+	services.RegisterService("setting", NewServices)
 }
