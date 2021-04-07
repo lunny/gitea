@@ -9,7 +9,7 @@ import (
 	"code.gitea.io/gitea/modules/convert"
 	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/notification/base"
+	"code.gitea.io/gitea/modules/notification"
 	"code.gitea.io/gitea/modules/repository"
 	"code.gitea.io/gitea/modules/setting"
 	api "code.gitea.io/gitea/modules/structs"
@@ -17,15 +17,15 @@ import (
 )
 
 type webhookNotifier struct {
-	base.NullNotifier
+	notification.NullNotifier
 }
 
 var (
-	_ base.Notifier = &webhookNotifier{}
+	_ notification.Notifier = &webhookNotifier{}
 )
 
 // NewNotifier create a new webhookNotifier notifier
-func NewNotifier() base.Notifier {
+func NewNotifier() notification.Notifier {
 	return &webhookNotifier{}
 }
 

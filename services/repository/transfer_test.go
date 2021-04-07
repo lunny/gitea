@@ -10,8 +10,8 @@ import (
 
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/modules/notification"
-	"code.gitea.io/gitea/modules/notification/action"
 	"code.gitea.io/gitea/modules/util"
+	"code.gitea.io/gitea/services/notification/action"
 
 	"github.com/stretchr/testify/assert"
 )
