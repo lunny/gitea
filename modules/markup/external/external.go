@@ -15,6 +15,7 @@ import (
 
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/markup"
+	"code.gitea.io/gitea/modules/services"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/util"
 )
@@ -26,6 +27,13 @@ func RegisterParsers() {
 			markup.RegisterParser(&Parser{parser})
 		}
 	}
+}
+
+func init() {
+	services.RegisterService("markup/external", func() error {
+		RegisterParsers()
+		return nil
+	}, "setting")
 }
 
 // Parser implements markup.Parser for external tools

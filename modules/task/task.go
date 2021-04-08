@@ -13,6 +13,7 @@ import (
 	"code.gitea.io/gitea/modules/migrations/base"
 	"code.gitea.io/gitea/modules/queue"
 	repo_module "code.gitea.io/gitea/modules/repository"
+	"code.gitea.io/gitea/modules/services"
 	"code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/timeutil"
 	jsoniter "github.com/json-iterator/go"
@@ -42,6 +43,10 @@ func Init() error {
 	go graceful.GetManager().RunWithShutdownFns(taskQueue.Run)
 
 	return nil
+}
+
+func init() {
+	services.RegisterService("task", Init, "setting")
 }
 
 func handle(data ...queue.Data) {

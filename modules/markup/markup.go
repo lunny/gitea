@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"code.gitea.io/gitea/modules/log"
+	"code.gitea.io/gitea/modules/services"
 	"code.gitea.io/gitea/modules/setting"
 )
 
@@ -27,6 +28,13 @@ func Init() {
 			extParsers[strings.ToLower(ext)] = parser
 		}
 	}
+}
+
+func init() {
+	services.RegisterService("markup", func() error {
+		Init()
+		return nil
+	}, "setting", "markup/external")
 }
 
 // Parser defines an interface for parsering markup file to HTML
