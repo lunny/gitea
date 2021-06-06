@@ -127,9 +127,12 @@ func Profile(ctx *context.Context) {
 
 	showPrivate := ctx.IsSigned && (ctx.User.IsAdmin || ctx.User.ID == ctxUser.ID)
 
-	orgs, err := models.GetOrgsByUserID(ctxUser.ID, showPrivate)
+	orgs, err := models.FindOrgs(models.FindOrgOptions{
+		UserID:         ctxUser.ID,
+		IncludePrivate: showPrivate,
+	})
 	if err != nil {
-		ctx.ServerError("GetOrgsByUserIDDesc", err)
+		ctx.ServerError("FindOrgs", err)
 		return
 	}
 
