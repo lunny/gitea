@@ -454,10 +454,14 @@ type FindOrgOptions struct {
 func (opts FindOrgOptions) toConds() builder.Cond {
 	var cond = builder.NewCond()
 	if opts.UserID > 0 {
-		cond = cond.And(builder.Eq{"`org_user`.uid": opts.UserID})
+		cond = cond.And(builder.In("`user`.`id`", queryUserOrgIDs(opts.UserID)))
 	}
 	if !opts.IncludePrivate {
 		cond = cond.And(builder.Eq{"`user`.visibility": structs.VisibleTypePublic})
+	} else {
+		cond = cond.And(builder.Eq{"`user`.visibility": structs.VisibleTypePrivate}.Or(
+			builder.Eq{"`user`.visibility": structs.VisibleTypeLimited},
+		))
 	}
 	return cond
 }
@@ -465,7 +469,7 @@ func (opts FindOrgOptions) toConds() builder.Cond {
 // FindOrgs returns a list of organizations according given conditions
 func FindOrgs(opts FindOrgOptions) ([]*User, error) {
 	orgs := make([]*User, 0, 10)
-	sess := x.Join("INNER", "`org_user`", "`org_user`.org_id=`user`.id").
+	sess := x.
 		Where(opts.toConds()).
 		Asc("`user`.name")
 	if opts.Page > 0 && opts.PageSize > 0 {
