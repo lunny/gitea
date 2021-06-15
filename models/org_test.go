@@ -325,8 +325,8 @@ func TestFindOrgs(t *testing.T) {
 	assert.NoError(t, PrepareTestDatabase())
 
 	orgs, err := FindOrgs(FindOrgOptions{
-		UserID:         4,
-		IncludePrivate: true,
+		UserID: 4,
+		Actor:  &User{ID: 4},
 	})
 	assert.NoError(t, err)
 	if assert.Len(t, orgs, 1) {
@@ -334,15 +334,14 @@ func TestFindOrgs(t *testing.T) {
 	}
 
 	orgs, err = FindOrgs(FindOrgOptions{
-		UserID:         4,
-		IncludePrivate: false,
+		UserID: 4,
 	})
 	assert.NoError(t, err)
 	assert.EqualValues(t, 0, len(orgs))
 
 	total, err := CountOrgs(FindOrgOptions{
-		UserID:         4,
-		IncludePrivate: true,
+		UserID: 4,
+		Actor:  &User{ID: 4},
 	})
 	assert.NoError(t, err)
 	assert.EqualValues(t, 1, total)

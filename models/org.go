@@ -427,20 +427,38 @@ func GetUserOrgsList(uid int64) ([]*MinimalOrg, error) {
 // FindOrgOptions finds orgs options
 type FindOrgOptions struct {
 	ListOptions
-	UserID         int64
-	IncludePrivate bool
+	Actor  *User
+	UserID int64
+}
+
+// queryOrgMembershipVisibleOrgIDs return query to only get org's of user who user is part of in public
+func queryOrgMembershipVisibleOrgIDs(actor *User) *builder.Builder {
+	if actor == nil {
+		return builder.Select("org_user.org_id").From("org_user").Where(builder.Eq{"org_user.is_public": true})
+	}
+	if actor.IsAdmin {
+		return builder.Select("org_user.org_id").From("org_user")
+	}
+	return builder.Select("org_user.org_id").From("org_user").Where(builder.Eq{"org_user.is_public": true}).Or(builder.Eq{"org_user.uid": actor.ID})
 }
 
 func (opts FindOrgOptions) toConds() builder.Cond {
 	var cond = builder.NewCond()
+	cond = cond.And(builder.In("`user`.`id`", queryOrgMembershipVisibleOrgIDs(opts.Actor)))
 	if opts.UserID > 0 {
-		// TODO: use queryUserOrgIDs()
 		cond = cond.And(builder.In("`user`.`id`",
 			builder.Select("org_user.org_id").
 				From("org_user").
 				Where(builder.Eq{"org_user.uid": opts.UserID})))
 	}
-	if !opts.IncludePrivate {
+	if opts.Actor != nil {
+		if !opts.Actor.IsAdmin {
+			cond = cond.And(builder.In("`user`.visibility", structs.VisibleTypePublic, structs.VisibleTypeLimited)).Or(builder.In("`user`.`id`",
+				builder.Select("org_user.org_id").
+					From("org_user").
+					Where(builder.Eq{"org_user.uid": opts.Actor.ID})))
+		}
+	} else {
 		cond = cond.And(builder.Eq{"`user`.visibility": structs.VisibleTypePublic})
 	}
 	return cond

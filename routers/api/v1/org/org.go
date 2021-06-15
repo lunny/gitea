@@ -20,12 +20,11 @@ import (
 
 func listUserOrgs(ctx *context.APIContext, u *models.User) {
 	listOptions := utils.GetListOptions(ctx)
-	showPrivate := ctx.IsSigned && (ctx.User.IsAdmin || ctx.User.ID == u.ID)
 
 	var opts = models.FindOrgOptions{
-		ListOptions:    listOptions,
-		UserID:         u.ID,
-		IncludePrivate: showPrivate,
+		Actor:       ctx.User,
+		ListOptions: listOptions,
+		UserID:      u.ID,
 	}
 	orgs, err := models.FindOrgs(opts)
 	if err != nil {

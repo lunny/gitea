@@ -214,8 +214,8 @@ func Organization(ctx *context.Context) {
 			PageSize: setting.UI.Admin.UserPagingNum,
 			Page:     ctx.QueryInt("page"),
 		},
-		UserID:         ctx.User.ID,
-		IncludePrivate: ctx.IsSigned,
+		Actor:  ctx.User,
+		UserID: ctx.User.ID,
 	}
 
 	if opts.Page <= 0 {
