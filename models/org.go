@@ -405,26 +405,6 @@ func getUsersWhoCanCreateOrgRepo(e Engine, orgID int64) ([]*User, error) {
 		And("team_user.org_id = ?", orgID).Asc("`user`.name").Find(&users)
 }
 
-func getOrgsByUserID(sess *xorm.Session, userID int64, showAll bool) ([]*User, error) {
-	orgs := make([]*User, 0, 10)
-	if !showAll {
-		sess.And("`org_user`.is_public=?", true)
-	}
-	return orgs, sess.
-		And("`org_user`.uid=?", userID).
-		Join("INNER", "`org_user`", "`org_user`.org_id=`user`.id").
-		Asc("`user`.name").
-		Find(&orgs)
-}
-
-// GetOrgsByUserID returns a list of organizations that the given user ID
-// has joined.
-func GetOrgsByUserID(userID int64, showAll bool) ([]*User, error) {
-	sess := x.NewSession()
-	defer sess.Close()
-	return getOrgsByUserID(sess, userID, showAll)
-}
-
 // queryUserOrgIDs returns a condition to return user's organization id
 func queryUserOrgIDs(uid int64) *builder.Builder {
 	return builder.Select("team.org_id").
