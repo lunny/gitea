@@ -459,10 +459,10 @@ func (opts FindOrgOptions) toConds() builder.Cond {
 	// return only org's actor is allowed to see
 	if opts.Actor != nil {
 		if !opts.Actor.IsAdmin {
-			cond = cond.And(builder.In("`user`.visibility", structs.VisibleTypePublic, structs.VisibleTypeLimited)).Or(builder.In("`user`.`id`",
+			cond = cond.And(builder.In("`user`.visibility", structs.VisibleTypePublic, structs.VisibleTypeLimited).Or(builder.In("`user`.`id`",
 				builder.Select("org_user.org_id").
 					From("org_user").
-					Where(builder.Eq{"org_user.uid": opts.Actor.ID})))
+					Where(builder.Eq{"org_user.uid": opts.Actor.ID}))))
 		}
 	} else {
 		cond = cond.And(builder.Eq{"`user`.visibility": structs.VisibleTypePublic})
