@@ -444,13 +444,19 @@ func queryOrgMembershipVisibleOrgIDs(actor *User) *builder.Builder {
 
 func (opts FindOrgOptions) toConds() builder.Cond {
 	var cond = builder.NewCond()
-	cond = cond.And(builder.In("`user`.`id`", queryOrgMembershipVisibleOrgIDs(opts.Actor)))
+
+	// filter by user id
 	if opts.UserID > 0 {
 		cond = cond.And(builder.In("`user`.`id`",
 			builder.Select("org_user.org_id").
 				From("org_user").
 				Where(builder.Eq{"org_user.uid": opts.UserID})))
 	}
+
+	// make sure user set membership visible
+	cond = cond.And(builder.In("`user`.`id`", queryOrgMembershipVisibleOrgIDs(opts.Actor)))
+
+	// return only org's actor is allowed to see
 	if opts.Actor != nil {
 		if !opts.Actor.IsAdmin {
 			cond = cond.And(builder.In("`user`.visibility", structs.VisibleTypePublic, structs.VisibleTypeLimited)).Or(builder.In("`user`.`id`",
@@ -461,6 +467,7 @@ func (opts FindOrgOptions) toConds() builder.Cond {
 	} else {
 		cond = cond.And(builder.Eq{"`user`.visibility": structs.VisibleTypePublic})
 	}
+
 	return cond
 }
 
@@ -478,9 +485,7 @@ func FindOrgs(opts FindOrgOptions) ([]*User, error) {
 
 // CountOrgs returns total count organizations according options
 func CountOrgs(opts FindOrgOptions) (int64, error) {
-	return x.Join("INNER", "`org_user`", "`org_user`.org_id=`user`.id").
-		Where(opts.toConds()).
-		Count(new(User))
+	return x.Where(opts.toConds()).Count(new(User))
 }
 
 func getOwnedOrgsByUserID(sess *xorm.Session, userID int64) ([]*User, error) {

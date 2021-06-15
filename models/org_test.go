@@ -332,19 +332,23 @@ func TestFindOrgs(t *testing.T) {
 	if assert.Len(t, orgs, 1) {
 		assert.EqualValues(t, 3, orgs[0].ID)
 	}
-
-	orgs, err = FindOrgs(FindOrgOptions{
-		UserID: 4,
-	})
-	assert.NoError(t, err)
-	assert.EqualValues(t, 0, len(orgs))
-
 	total, err := CountOrgs(FindOrgOptions{
 		UserID: 4,
 		Actor:  &User{ID: 4},
 	})
 	assert.NoError(t, err)
 	assert.EqualValues(t, 1, total)
+
+	orgs, err = FindOrgs(FindOrgOptions{
+		UserID: 4,
+	})
+	assert.NoError(t, err)
+	assert.EqualValues(t, 0, len(orgs))
+	total, err = CountOrgs(FindOrgOptions{
+		UserID: 4,
+	})
+	assert.NoError(t, err)
+	assert.EqualValues(t, 0, total)
 }
 
 func TestGetOwnedOrgsByUserID(t *testing.T) {
