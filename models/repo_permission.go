@@ -245,10 +245,11 @@ func getUserRepoPermission(e db.Engine, repo *Repository, user *user_model.User)
 	for _, u := range repo.Units {
 		var found bool
 		for _, team := range teams {
-			if team.unitEnabled(e, u.Type) {
+			teamMode := team.unitAccessMode(e, u.Type)
+			if teamMode > AccessModeNone {
 				m := perm.UnitsMode[u.Type]
-				if m < team.Authorize {
-					perm.UnitsMode[u.Type] = team.Authorize
+				if m < teamMode {
+					perm.UnitsMode[u.Type] = teamMode
 				}
 				found = true
 			}

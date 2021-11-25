@@ -359,6 +359,8 @@ var migrations = []Migration{
 	NewMigration("Drop table remote_version (if exists)", dropTableRemoteVersion),
 	// v202 -> v203
 	NewMigration("Create key/value table for user settings", createUserSettingsTable),
+	// v203 -> v204
+	NewMigration("Add column authorize column for team_unit table", addAuthorizeColForTeamUnit),
 }
 
 // GetCurrentDBVersion returns the current db version
