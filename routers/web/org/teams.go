@@ -248,7 +248,7 @@ func NewTeamPost(ctx *context.Context) {
 	var includesAllRepositories = form.RepoAccess == "all"
 	var unitPerms = getUnitPerms(ctx.Req.Form)
 	var p = perm.ParseAccessMode(form.Permission)
-	if p < perm.AccessModeOwner {
+	if p < perm.AccessModeAdmin {
 		p = perm.MinUnitPerms(unitPerms)
 	}
 
@@ -261,7 +261,7 @@ func NewTeamPost(ctx *context.Context) {
 		CanCreateOrgRepo:        form.CanCreateOrgRepo,
 	}
 
-	if t.Authorize < perm.AccessModeOwner {
+	if t.Authorize < perm.AccessModeAdmin {
 		var units = make([]*models.TeamUnit, 0, len(unitPerms))
 		for tp, perm := range unitPerms {
 			units = append(units, &models.TeamUnit{
@@ -363,7 +363,7 @@ func EditTeamPost(ctx *context.Context) {
 		}
 	}
 	t.Description = form.Description
-	if t.Authorize < perm.AccessModeOwner {
+	if t.Authorize < perm.AccessModeAdmin {
 		var units = make([]models.TeamUnit, 0, len(unitPerms))
 		for tp, perm := range unitPerms {
 			units = append(units, models.TeamUnit{

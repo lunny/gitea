@@ -235,7 +235,7 @@ func getUserRepoPermission(e db.Engine, repo *Repository, user *user_model.User)
 
 	// if user in an owner team
 	for _, team := range teams {
-		if team.Authorize >= perm_model.AccessModeOwner {
+		if team.Authorize >= perm_model.AccessModeAdmin {
 			perm.AccessMode = perm_model.AccessModeOwner
 			perm.UnitsMode = nil
 			return

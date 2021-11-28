@@ -306,6 +306,7 @@ func ToTeam(team *models.Team) *api.Team {
 		CanCreateOrgRepo:        team.CanCreateOrgRepo,
 		Permission:              team.Authorize.String(),
 		Units:                   team.GetUnitNames(),
+		UnitsMap:                team.GetUnitsMap(),
 	}
 }
 
