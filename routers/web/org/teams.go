@@ -14,6 +14,7 @@ import (
 
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/models/perm"
+	"code.gitea.io/gitea/models/unit"
 	unit_model "code.gitea.io/gitea/models/unit"
 	user_model "code.gitea.io/gitea/models/user"
 	"code.gitea.io/gitea/modules/base"
@@ -249,7 +250,7 @@ func NewTeamPost(ctx *context.Context) {
 	var unitPerms = getUnitPerms(ctx.Req.Form)
 	var p = perm.ParseAccessMode(form.Permission)
 	if p < perm.AccessModeAdmin {
-		p = perm.MinUnitPerms(unitPerms)
+		p = unit.MinUnitPerms(unitPerms)
 	}
 
 	t := &models.Team{

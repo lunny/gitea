@@ -11,6 +11,7 @@ import (
 
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/models/perm"
+	"code.gitea.io/gitea/models/unit"
 	unit_model "code.gitea.io/gitea/models/unit"
 	"code.gitea.io/gitea/modules/context"
 	"code.gitea.io/gitea/modules/convert"
@@ -209,7 +210,7 @@ func CreateTeam(ctx *context.APIContext) {
 
 	var p = perm.ParseAccessMode(form.Permission)
 	if p < perm.AccessModeAdmin && len(form.UnitsMap) > 0 {
-		p = perm.MinUnitPerms(convertUnitsMap(form.UnitsMap))
+		p = unit.MinUnitPerms(convertUnitsMap(form.UnitsMap))
 	}
 
 	team := &models.Team{
@@ -293,7 +294,7 @@ func EditTeam(ctx *context.APIContext) {
 		// Validate permission level.
 		var p = perm.ParseAccessMode(form.Permission)
 		if p < perm.AccessModeAdmin && len(form.UnitsMap) > 0 {
-			p = perm.MinUnitPerms(convertUnitsMap(form.UnitsMap))
+			p = unit.MinUnitPerms(convertUnitsMap(form.UnitsMap))
 		}
 
 		if team.Authorize != p {
