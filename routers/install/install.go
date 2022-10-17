@@ -442,11 +442,6 @@ func SubmitInstall(ctx *context.Context) {
 	cfg.Section("service").Key("ENABLE_NOTIFY_MAIL").SetValue(fmt.Sprint(form.MailNotify))
 
 	cfg.Section("server").Key("OFFLINE_MODE").SetValue(fmt.Sprint(form.OfflineMode))
-	// if you are reinstalling, this maybe not right because of missing version
-	if err := system_model.SetSettingNoVersion(system_model.KeyPictureDisableGravatar, strconv.FormatBool(form.DisableGravatar)); err != nil {
-		ctx.RenderWithErr(ctx.Tr("install.secret_key_failed", err), tplInstall, &form)
-		return
-	}
 	cfg.Section("picture").Key("ENABLE_FEDERATED_AVATAR").SetValue(fmt.Sprint(form.EnableFederatedAvatar))
 	cfg.Section("openid").Key("ENABLE_OPENID_SIGNIN").SetValue(fmt.Sprint(form.EnableOpenIDSignIn))
 	cfg.Section("openid").Key("ENABLE_OPENID_SIGNUP").SetValue(fmt.Sprint(form.EnableOpenIDSignUp))
