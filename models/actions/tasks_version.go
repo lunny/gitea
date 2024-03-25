@@ -73,33 +73,28 @@ func increaseTasksVersionByScope(ctx context.Context, ownerID, repoID int64) err
 }
 
 func IncreaseTaskVersion(ctx context.Context, ownerID, repoID int64) error {
-	ctx, commiter, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer commiter.Close()
-
-	// 1. increase global
-	if err := increaseTasksVersionByScope(ctx, 0, 0); err != nil {
-		log.Error("IncreaseTasksVersionByScope(Global): %v", err)
-		return err
-	}
-
-	// 2. increase owner
-	if ownerID > 0 {
-		if err := increaseTasksVersionByScope(ctx, ownerID, 0); err != nil {
-			log.Error("IncreaseTasksVersionByScope(Owner): %v", err)
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		// 1. increase global
+		if err := increaseTasksVersionByScope(ctx, 0, 0); err != nil {
+			log.Error("IncreaseTasksVersionByScope(Global): %v", err)
 			return err
 		}
-	}
 
-	// 3. increase repo
-	if repoID > 0 {
-		if err := increaseTasksVersionByScope(ctx, 0, repoID); err != nil {
-			log.Error("IncreaseTasksVersionByScope(Repo): %v", err)
-			return err
+		// 2. increase owner
+		if ownerID > 0 {
+			if err := increaseTasksVersionByScope(ctx, ownerID, 0); err != nil {
+				log.Error("IncreaseTasksVersionByScope(Owner): %v", err)
+				return err
+			}
 		}
-	}
 
-	return commiter.Commit()
+		// 3. increase repo
+		if repoID > 0 {
+			if err := increaseTasksVersionByScope(ctx, 0, repoID); err != nil {
+				log.Error("IncreaseTasksVersionByScope(Repo): %v", err)
+				return err
+			}
+		}
+		return nil
+	})
 }

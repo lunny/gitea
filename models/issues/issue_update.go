@@ -132,69 +132,57 @@ func ChangeIssueStatus(ctx context.Context, issue *Issue, doer *user_model.User,
 
 // ChangeIssueTitle changes the title of this issue, as the given user.
 func ChangeIssueTitle(ctx context.Context, issue *Issue, doer *user_model.User, oldTitle string) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err = UpdateIssueCols(ctx, issue, "name"); err != nil {
+			return fmt.Errorf("updateIssueCols: %w", err)
+		}
 
-	if err = UpdateIssueCols(ctx, issue, "name"); err != nil {
-		return fmt.Errorf("updateIssueCols: %w", err)
-	}
+		if err = issue.LoadRepo(ctx); err != nil {
+			return fmt.Errorf("loadRepo: %w", err)
+		}
 
-	if err = issue.LoadRepo(ctx); err != nil {
-		return fmt.Errorf("loadRepo: %w", err)
-	}
-
-	opts := &CreateCommentOptions{
-		Type:     CommentTypeChangeTitle,
-		Doer:     doer,
-		Repo:     issue.Repo,
-		Issue:    issue,
-		OldTitle: oldTitle,
-		NewTitle: issue.Title,
-	}
-	if _, err = CreateComment(ctx, opts); err != nil {
-		return fmt.Errorf("createComment: %w", err)
-	}
-	if err = issue.AddCrossReferences(ctx, doer, true); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+		opts := &CreateCommentOptions{
+			Type:     CommentTypeChangeTitle,
+			Doer:     doer,
+			Repo:     issue.Repo,
+			Issue:    issue,
+			OldTitle: oldTitle,
+			NewTitle: issue.Title,
+		}
+		if _, err = CreateComment(ctx, opts); err != nil {
+			return fmt.Errorf("createComment: %w", err)
+		}
+		return issue.AddCrossReferences(ctx, doer, true)
+	})
 }
 
 // ChangeIssueRef changes the branch of this issue, as the given user.
 func ChangeIssueRef(ctx context.Context, issue *Issue, doer *user_model.User, oldRef string) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err = UpdateIssueCols(ctx, issue, "ref"); err != nil {
+			return fmt.Errorf("updateIssueCols: %w", err)
+		}
 
-	if err = UpdateIssueCols(ctx, issue, "ref"); err != nil {
-		return fmt.Errorf("updateIssueCols: %w", err)
-	}
+		if err = issue.LoadRepo(ctx); err != nil {
+			return fmt.Errorf("loadRepo: %w", err)
+		}
+		oldRefFriendly := strings.TrimPrefix(oldRef, git.BranchPrefix)
+		newRefFriendly := strings.TrimPrefix(issue.Ref, git.BranchPrefix)
 
-	if err = issue.LoadRepo(ctx); err != nil {
-		return fmt.Errorf("loadRepo: %w", err)
-	}
-	oldRefFriendly := strings.TrimPrefix(oldRef, git.BranchPrefix)
-	newRefFriendly := strings.TrimPrefix(issue.Ref, git.BranchPrefix)
+		opts := &CreateCommentOptions{
+			Type:   CommentTypeChangeIssueRef,
+			Doer:   doer,
+			Repo:   issue.Repo,
+			Issue:  issue,
+			OldRef: oldRefFriendly,
+			NewRef: newRefFriendly,
+		}
+		if _, err = CreateComment(ctx, opts); err != nil {
+			return fmt.Errorf("createComment: %w", err)
+		}
 
-	opts := &CreateCommentOptions{
-		Type:   CommentTypeChangeIssueRef,
-		Doer:   doer,
-		Repo:   issue.Repo,
-		Issue:  issue,
-		OldRef: oldRefFriendly,
-		NewRef: newRefFriendly,
-	}
-	if _, err = CreateComment(ctx, opts); err != nil {
-		return fmt.Errorf("createComment: %w", err)
-	}
-
-	return committer.Commit()
+		return nil
+	})
 }
 
 // AddDeletePRBranchComment adds delete branch comment for pull request issue
@@ -216,59 +204,52 @@ func AddDeletePRBranchComment(ctx context.Context, doer *user_model.User, repo *
 
 // UpdateIssueAttachments update attachments by UUIDs for the issue
 func UpdateIssueAttachments(ctx context.Context, issueID int64, uuids []string) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-	attachments, err := repo_model.GetAttachmentsByUUIDs(ctx, uuids)
-	if err != nil {
-		return fmt.Errorf("getAttachmentsByUUIDs [uuids: %v]: %w", uuids, err)
-	}
-	for i := 0; i < len(attachments); i++ {
-		attachments[i].IssueID = issueID
-		if err := repo_model.UpdateAttachment(ctx, attachments[i]); err != nil {
-			return fmt.Errorf("update attachment [id: %d]: %w", attachments[i].ID, err)
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		attachments, err := repo_model.GetAttachmentsByUUIDs(ctx, uuids)
+		if err != nil {
+			return fmt.Errorf("getAttachmentsByUUIDs [uuids: %v]: %w", uuids, err)
 		}
-	}
-	return committer.Commit()
+		for i := 0; i < len(attachments); i++ {
+			attachments[i].IssueID = issueID
+			if err := repo_model.UpdateAttachment(ctx, attachments[i]); err != nil {
+				return fmt.Errorf("update attachment [id: %d]: %w", attachments[i].ID, err)
+			}
+		}
+		return nil
+	})
 }
 
 // ChangeIssueContent changes issue content, as the given user.
 func ChangeIssueContent(ctx context.Context, issue *Issue, doer *user_model.User, content string) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		hasContentHistory, err := HasIssueContentHistory(ctx, issue.ID, 0)
+		if err != nil {
+			return fmt.Errorf("HasIssueContentHistory: %w", err)
+		}
+		if !hasContentHistory {
+			if err = SaveIssueContentHistory(ctx, issue.PosterID, issue.ID, 0,
+				issue.CreatedUnix, issue.Content, true); err != nil {
+				return fmt.Errorf("SaveIssueContentHistory: %w", err)
+			}
+		}
 
-	hasContentHistory, err := HasIssueContentHistory(ctx, issue.ID, 0)
-	if err != nil {
-		return fmt.Errorf("HasIssueContentHistory: %w", err)
-	}
-	if !hasContentHistory {
-		if err = SaveIssueContentHistory(ctx, issue.PosterID, issue.ID, 0,
-			issue.CreatedUnix, issue.Content, true); err != nil {
+		issue.Content = content
+
+		if err = UpdateIssueCols(ctx, issue, "content"); err != nil {
+			return fmt.Errorf("UpdateIssueCols: %w", err)
+		}
+
+		if err = SaveIssueContentHistory(ctx, doer.ID, issue.ID, 0,
+			timeutil.TimeStampNow(), issue.Content, false); err != nil {
 			return fmt.Errorf("SaveIssueContentHistory: %w", err)
 		}
-	}
 
-	issue.Content = content
+		if err = issue.AddCrossReferences(ctx, doer, true); err != nil {
+			return fmt.Errorf("addCrossReferences: %w", err)
+		}
 
-	if err = UpdateIssueCols(ctx, issue, "content"); err != nil {
-		return fmt.Errorf("UpdateIssueCols: %w", err)
-	}
-
-	if err = SaveIssueContentHistory(ctx, doer.ID, issue.ID, 0,
-		timeutil.TimeStampNow(), issue.Content, false); err != nil {
-		return fmt.Errorf("SaveIssueContentHistory: %w", err)
-	}
-
-	if err = issue.AddCrossReferences(ctx, doer, true); err != nil {
-		return fmt.Errorf("addCrossReferences: %w", err)
-	}
-
-	return committer.Commit()
+		return nil
+	})
 }
 
 // NewIssueOptions represents the options of a new issue.
@@ -382,36 +363,27 @@ func NewIssueWithIndex(ctx context.Context, doer *user_model.User, opts NewIssue
 
 // NewIssue creates new issue with labels for repository.
 func NewIssue(ctx context.Context, repo *repo_model.Repository, issue *Issue, labelIDs []int64, uuids []string) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	idx, err := db.GetNextResourceIndex(ctx, "issue_index", repo.ID)
-	if err != nil {
-		return fmt.Errorf("generate issue index failed: %w", err)
-	}
-
-	issue.Index = idx
-
-	if err = NewIssueWithIndex(ctx, issue.Poster, NewIssueOptions{
-		Repo:        repo,
-		Issue:       issue,
-		LabelIDs:    labelIDs,
-		Attachments: uuids,
-	}); err != nil {
-		if repo_model.IsErrUserDoesNotHaveAccessToRepo(err) || IsErrNewIssueInsert(err) {
-			return err
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		idx, err := db.GetNextResourceIndex(ctx, "issue_index", repo.ID)
+		if err != nil {
+			return fmt.Errorf("generate issue index failed: %w", err)
 		}
-		return fmt.Errorf("newIssue: %w", err)
-	}
 
-	if err = committer.Commit(); err != nil {
-		return fmt.Errorf("Commit: %w", err)
-	}
+		issue.Index = idx
 
-	return nil
+		if err = NewIssueWithIndex(ctx, issue.Poster, NewIssueOptions{
+			Repo:        repo,
+			Issue:       issue,
+			LabelIDs:    labelIDs,
+			Attachments: uuids,
+		}); err != nil {
+			if repo_model.IsErrUserDoesNotHaveAccessToRepo(err) || IsErrNewIssueInsert(err) {
+				return err
+			}
+			return fmt.Errorf("newIssue: %w", err)
+		}
+		return nil
+	})
 }
 
 // UpdateIssueMentions updates issue-user relations for mentioned users.
@@ -491,23 +463,19 @@ func UpdateIssueDeadline(ctx context.Context, issue *Issue, deadlineUnix timeuti
 	if issue.DeadlineUnix == deadlineUnix {
 		return nil
 	}
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
 
-	// Update the deadline
-	if err = UpdateIssueCols(ctx, &Issue{ID: issue.ID, DeadlineUnix: deadlineUnix}, "deadline_unix"); err != nil {
-		return err
-	}
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		// Update the deadline
+		if err = UpdateIssueCols(ctx, &Issue{ID: issue.ID, DeadlineUnix: deadlineUnix}, "deadline_unix"); err != nil {
+			return err
+		}
 
-	// Make the comment
-	if _, err = createDeadlineComment(ctx, doer, issue, deadlineUnix); err != nil {
-		return fmt.Errorf("createRemovedDueDateComment: %w", err)
-	}
-
-	return committer.Commit()
+		// Make the comment
+		if _, err = createDeadlineComment(ctx, doer, issue, deadlineUnix); err != nil {
+			return fmt.Errorf("createRemovedDueDateComment: %w", err)
+		}
+		return nil
+	})
 }
 
 // FindAndUpdateIssueMentions finds users mentioned in the given content string, and saves them in the database.

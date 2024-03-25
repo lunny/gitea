@@ -683,17 +683,14 @@ func NotifyWatchers(ctx context.Context, actions ...*Action) error {
 
 // NotifyWatchersActions creates batch of actions for every watcher.
 func NotifyWatchersActions(ctx context.Context, acts []*Action) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-	for _, act := range acts {
-		if err := NotifyWatchers(ctx, act); err != nil {
-			return err
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		for _, act := range acts {
+			if err := NotifyWatchers(ctx, act); err != nil {
+				return err
+			}
 		}
-	}
-	return committer.Commit()
+		return nil
+	})
 }
 
 // DeleteIssueActions delete all actions related with issueID

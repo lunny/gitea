@@ -88,35 +88,27 @@ func NewIssueLabel(ctx context.Context, issue *Issue, label *Label, doer *user_m
 		return nil
 	}
 
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err = issue.LoadRepo(ctx); err != nil {
+			return err
+		}
 
-	if err = issue.LoadRepo(ctx); err != nil {
-		return err
-	}
+		// Do NOT add invalid labels
+		if issue.RepoID != label.RepoID && issue.Repo.OwnerID != label.OrgID {
+			return nil
+		}
 
-	// Do NOT add invalid labels
-	if issue.RepoID != label.RepoID && issue.Repo.OwnerID != label.OrgID {
-		return nil
-	}
+		if err = RemoveDuplicateExclusiveIssueLabels(ctx, issue, label, doer); err != nil {
+			return nil
+		}
 
-	if err = RemoveDuplicateExclusiveIssueLabels(ctx, issue, label, doer); err != nil {
-		return nil
-	}
+		if err = newIssueLabel(ctx, issue, label, doer); err != nil {
+			return err
+		}
 
-	if err = newIssueLabel(ctx, issue, label, doer); err != nil {
-		return err
-	}
-
-	issue.Labels = nil
-	if err = issue.LoadLabels(ctx); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+		issue.Labels = nil
+		return issue.LoadLabels(ctx)
+	})
 }
 
 // newIssueLabels add labels to an issue. It will check if the labels are valid for the issue
@@ -150,22 +142,14 @@ func newIssueLabels(ctx context.Context, issue *Issue, labels []*Label, doer *us
 
 // NewIssueLabels creates a list of issue-label relations.
 func NewIssueLabels(ctx context.Context, issue *Issue, labels []*Label, doer *user_model.User) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err = newIssueLabels(ctx, issue, labels, doer); err != nil {
+			return err
+		}
 
-	if err = newIssueLabels(ctx, issue, labels, doer); err != nil {
-		return err
-	}
-
-	issue.Labels = nil
-	if err = issue.LoadLabels(ctx); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+		issue.Labels = nil
+		return issue.LoadLabels(ctx)
+	})
 }
 
 func deleteIssueLabel(ctx context.Context, issue *Issue, label *Label, doer *user_model.User) (err error) {
@@ -360,35 +344,23 @@ func clearIssueLabels(ctx context.Context, issue *Issue, doer *user_model.User) 
 // ClearIssueLabels removes all issue labels as the given user.
 // Triggers appropriate WebHooks, if any.
 func ClearIssueLabels(ctx context.Context, issue *Issue, doer *user_model.User) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err := issue.LoadRepo(ctx); err != nil {
+			return err
+		} else if err = issue.LoadPullRequest(ctx); err != nil {
+			return err
+		}
 
-	if err := issue.LoadRepo(ctx); err != nil {
-		return err
-	} else if err = issue.LoadPullRequest(ctx); err != nil {
-		return err
-	}
+		perm, err := access_model.GetUserRepoPermission(ctx, issue.Repo, doer)
+		if err != nil {
+			return err
+		}
+		if !perm.CanWriteIssuesOrPulls(issue.IsPull) {
+			return ErrRepoLabelNotExist{}
+		}
 
-	perm, err := access_model.GetUserRepoPermission(ctx, issue.Repo, doer)
-	if err != nil {
-		return err
-	}
-	if !perm.CanWriteIssuesOrPulls(issue.IsPull) {
-		return ErrRepoLabelNotExist{}
-	}
-
-	if err = clearIssueLabels(ctx, issue, doer); err != nil {
-		return err
-	}
-
-	if err = committer.Commit(); err != nil {
-		return fmt.Errorf("Commit: %w", err)
-	}
-
-	return nil
+		return clearIssueLabels(ctx, issue, doer)
+	})
 }
 
 type labelSorter []*Label

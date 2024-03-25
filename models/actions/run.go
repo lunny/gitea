@@ -241,76 +241,72 @@ func CancelPreviousJobs(ctx context.Context, repoID int64, ref, workflowID strin
 
 // InsertRun inserts a run
 func InsertRun(ctx context.Context, run *ActionRun, jobs []*jobparser.SingleWorkflow) error {
-	ctx, commiter, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer commiter.Close()
-
-	index, err := db.GetNextResourceIndex(ctx, "action_run_index", run.RepoID)
-	if err != nil {
-		return err
-	}
-	run.Index = index
-
-	if err := db.Insert(ctx, run); err != nil {
-		return err
-	}
-
-	if run.Repo == nil {
-		repo, err := repo_model.GetRepositoryByID(ctx, run.RepoID)
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		index, err := db.GetNextResourceIndex(ctx, "action_run_index", run.RepoID)
 		if err != nil {
 			return err
 		}
-		run.Repo = repo
-	}
+		run.Index = index
 
-	if err := updateRepoRunsNumbers(ctx, run.Repo); err != nil {
-		return err
-	}
-
-	runJobs := make([]*ActionRunJob, 0, len(jobs))
-	var hasWaiting bool
-	for _, v := range jobs {
-		id, job := v.Job()
-		needs := job.Needs()
-		if err := v.SetJob(id, job.EraseNeeds()); err != nil {
+		if err := db.Insert(ctx, run); err != nil {
 			return err
 		}
-		payload, _ := v.Marshal()
-		status := StatusWaiting
-		if len(needs) > 0 || run.NeedApproval {
-			status = StatusBlocked
-		} else {
-			hasWaiting = true
-		}
-		job.Name, _ = util.SplitStringAtByteN(job.Name, 255)
-		runJobs = append(runJobs, &ActionRunJob{
-			RunID:             run.ID,
-			RepoID:            run.RepoID,
-			OwnerID:           run.OwnerID,
-			CommitSHA:         run.CommitSHA,
-			IsForkPullRequest: run.IsForkPullRequest,
-			Name:              job.Name,
-			WorkflowPayload:   payload,
-			JobID:             id,
-			Needs:             needs,
-			RunsOn:            job.RunsOn(),
-			Status:            status,
-		})
-	}
-	if err := db.Insert(ctx, runJobs); err != nil {
-		return err
-	}
 
-	// if there is a job in the waiting status, increase tasks version.
-	if hasWaiting {
-		if err := IncreaseTaskVersion(ctx, run.OwnerID, run.RepoID); err != nil {
+		if run.Repo == nil {
+			repo, err := repo_model.GetRepositoryByID(ctx, run.RepoID)
+			if err != nil {
+				return err
+			}
+			run.Repo = repo
+		}
+
+		if err := updateRepoRunsNumbers(ctx, run.Repo); err != nil {
 			return err
 		}
-	}
 
-	return commiter.Commit()
+		runJobs := make([]*ActionRunJob, 0, len(jobs))
+		var hasWaiting bool
+		for _, v := range jobs {
+			id, job := v.Job()
+			needs := job.Needs()
+			if err := v.SetJob(id, job.EraseNeeds()); err != nil {
+				return err
+			}
+			payload, _ := v.Marshal()
+			status := StatusWaiting
+			if len(needs) > 0 || run.NeedApproval {
+				status = StatusBlocked
+			} else {
+				hasWaiting = true
+			}
+			job.Name, _ = util.SplitStringAtByteN(job.Name, 255)
+			runJobs = append(runJobs, &ActionRunJob{
+				RunID:             run.ID,
+				RepoID:            run.RepoID,
+				OwnerID:           run.OwnerID,
+				CommitSHA:         run.CommitSHA,
+				IsForkPullRequest: run.IsForkPullRequest,
+				Name:              job.Name,
+				WorkflowPayload:   payload,
+				JobID:             id,
+				Needs:             needs,
+				RunsOn:            job.RunsOn(),
+				Status:            status,
+			})
+		}
+		if err := db.Insert(ctx, runJobs); err != nil {
+			return err
+		}
+
+		// if there is a job in the waiting status, increase tasks version.
+		if hasWaiting {
+			if err := IncreaseTaskVersion(ctx, run.OwnerID, run.RepoID); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func GetRunByID(ctx context.Context, id int64) (*ActionRun, error) {
