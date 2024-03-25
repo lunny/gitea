@@ -256,15 +256,9 @@ func CreateIssueStopwatch(ctx context.Context, user *user_model.User, issue *Iss
 
 // CancelStopwatch removes the given stopwatch and logs it into issue's timeline.
 func CancelStopwatch(ctx context.Context, user *user_model.User, issue *Issue) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-	if err := cancelStopwatch(ctx, user, issue); err != nil {
-		return err
-	}
-	return committer.Commit()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		return cancelStopwatch(ctx, user, issue)
+	})
 }
 
 func cancelStopwatch(ctx context.Context, user *user_model.User, issue *Issue) error {

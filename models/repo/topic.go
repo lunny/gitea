@@ -290,64 +290,57 @@ func SaveTopics(ctx context.Context, repoID int64, topicNames ...string) error {
 		return err
 	}
 
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-	sess := db.GetEngine(ctx)
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		sess := db.GetEngine(ctx)
 
-	var addedTopicNames []string
-	for _, topicName := range topicNames {
-		if strings.TrimSpace(topicName) == "" {
-			continue
-		}
-
-		var found bool
-		for _, t := range topics {
-			if strings.EqualFold(topicName, t.Name) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			addedTopicNames = append(addedTopicNames, topicName)
-		}
-	}
-
-	var removeTopics []*Topic
-	for _, t := range topics {
-		var found bool
+		var addedTopicNames []string
 		for _, topicName := range topicNames {
-			if strings.EqualFold(topicName, t.Name) {
-				found = true
-				break
+			if strings.TrimSpace(topicName) == "" {
+				continue
+			}
+
+			var found bool
+			for _, t := range topics {
+				if strings.EqualFold(topicName, t.Name) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				addedTopicNames = append(addedTopicNames, topicName)
 			}
 		}
-		if !found {
-			removeTopics = append(removeTopics, t)
+
+		var removeTopics []*Topic
+		for _, t := range topics {
+			var found bool
+			for _, topicName := range topicNames {
+				if strings.EqualFold(topicName, t.Name) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				removeTopics = append(removeTopics, t)
+			}
 		}
-	}
 
-	for _, topicName := range addedTopicNames {
-		_, err := addTopicByNameToRepo(ctx, repoID, topicName)
-		if err != nil {
-			return err
+		for _, topicName := range addedTopicNames {
+			_, err := addTopicByNameToRepo(ctx, repoID, topicName)
+			if err != nil {
+				return err
+			}
 		}
-	}
 
-	for _, topic := range removeTopics {
-		err := removeTopicFromRepo(ctx, repoID, topic)
-		if err != nil {
-			return err
+		for _, topic := range removeTopics {
+			err := removeTopicFromRepo(ctx, repoID, topic)
+			if err != nil {
+				return err
+			}
 		}
-	}
 
-	if err := syncTopicsInRepository(sess, repoID); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+		return syncTopicsInRepository(sess, repoID)
+	})
 }
 
 // GenerateTopics generates topics from a template repository

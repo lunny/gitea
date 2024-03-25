@@ -109,17 +109,12 @@ func Init(ctx context.Context) error {
 
 // UpdateRepository updates a repository
 func UpdateRepository(ctx context.Context, repo *repo_model.Repository, visibilityChanged bool) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	if err = repo_module.UpdateRepository(ctx, repo, visibilityChanged); err != nil {
-		return fmt.Errorf("updateRepository: %w", err)
-	}
-
-	return committer.Commit()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err = repo_module.UpdateRepository(ctx, repo, visibilityChanged); err != nil {
+			return fmt.Errorf("updateRepository: %w", err)
+		}
+		return nil
+	})
 }
 
 // LinkedRepository returns the linked repo if any

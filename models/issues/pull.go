@@ -377,48 +377,44 @@ func (pr *PullRequest) getReviewedByLines(ctx context.Context, writer io.Writer)
 		return nil
 	}
 
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		// Note: This doesn't page as we only expect a very limited number of reviews
+		reviews, err := FindLatestReviews(ctx, FindReviewOptions{
+			Type:         ReviewTypeApprove,
+			IssueID:      pr.IssueID,
+			OfficialOnly: setting.Repository.PullRequest.DefaultMergeMessageOfficialApproversOnly,
+		})
+		if err != nil {
+			log.Error("Unable to FindReviews for PR ID %d: %v", pr.ID, err)
+			return err
+		}
 
-	// Note: This doesn't page as we only expect a very limited number of reviews
-	reviews, err := FindLatestReviews(ctx, FindReviewOptions{
-		Type:         ReviewTypeApprove,
-		IssueID:      pr.IssueID,
-		OfficialOnly: setting.Repository.PullRequest.DefaultMergeMessageOfficialApproversOnly,
+		reviewersWritten := 0
+
+		for _, review := range reviews {
+			if maxReviewers > 0 && reviewersWritten > maxReviewers {
+				break
+			}
+
+			if err := review.LoadReviewer(ctx); err != nil && !user_model.IsErrUserNotExist(err) {
+				log.Error("Unable to LoadReviewer[%d] for PR ID %d : %v", review.ReviewerID, pr.ID, err)
+				return err
+			} else if review.Reviewer == nil {
+				continue
+			}
+			if _, err := writer.Write([]byte("Reviewed-by: ")); err != nil {
+				return err
+			}
+			if _, err := writer.Write([]byte(review.Reviewer.NewGitSig().String())); err != nil {
+				return err
+			}
+			if _, err := writer.Write([]byte{'\n'}); err != nil {
+				return err
+			}
+			reviewersWritten++
+		}
+		return nil
 	})
-	if err != nil {
-		log.Error("Unable to FindReviews for PR ID %d: %v", pr.ID, err)
-		return err
-	}
-
-	reviewersWritten := 0
-
-	for _, review := range reviews {
-		if maxReviewers > 0 && reviewersWritten > maxReviewers {
-			break
-		}
-
-		if err := review.LoadReviewer(ctx); err != nil && !user_model.IsErrUserNotExist(err) {
-			log.Error("Unable to LoadReviewer[%d] for PR ID %d : %v", review.ReviewerID, pr.ID, err)
-			return err
-		} else if review.Reviewer == nil {
-			continue
-		}
-		if _, err := writer.Write([]byte("Reviewed-by: ")); err != nil {
-			return err
-		}
-		if _, err := writer.Write([]byte(review.Reviewer.NewGitSig().String())); err != nil {
-			return err
-		}
-		if _, err := writer.Write([]byte{'\n'}); err != nil {
-			return err
-		}
-		reviewersWritten++
-	}
-	return committer.Commit()
 }
 
 // GetGitRefName returns git ref for hidden pull request branch
@@ -516,44 +512,35 @@ func (pr *PullRequest) SetMerged(ctx context.Context) (bool, error) {
 
 // NewPullRequest creates new pull request with labels for repository.
 func NewPullRequest(ctx context.Context, repo *repo_model.Repository, issue *Issue, labelIDs []int64, uuids []string, pr *PullRequest) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	idx, err := db.GetNextResourceIndex(ctx, "issue_index", repo.ID)
-	if err != nil {
-		return fmt.Errorf("generate pull request index failed: %w", err)
-	}
-
-	issue.Index = idx
-
-	if err = NewIssueWithIndex(ctx, issue.Poster, NewIssueOptions{
-		Repo:        repo,
-		Issue:       issue,
-		LabelIDs:    labelIDs,
-		Attachments: uuids,
-		IsPull:      true,
-	}); err != nil {
-		if repo_model.IsErrUserDoesNotHaveAccessToRepo(err) || IsErrNewIssueInsert(err) {
-			return err
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		idx, err := db.GetNextResourceIndex(ctx, "issue_index", repo.ID)
+		if err != nil {
+			return fmt.Errorf("generate pull request index failed: %w", err)
 		}
-		return fmt.Errorf("newIssue: %w", err)
-	}
 
-	pr.Index = issue.Index
-	pr.BaseRepo = repo
-	pr.IssueID = issue.ID
-	if err = db.Insert(ctx, pr); err != nil {
-		return fmt.Errorf("insert pull repo: %w", err)
-	}
+		issue.Index = idx
 
-	if err = committer.Commit(); err != nil {
-		return fmt.Errorf("Commit: %w", err)
-	}
+		if err = NewIssueWithIndex(ctx, issue.Poster, NewIssueOptions{
+			Repo:        repo,
+			Issue:       issue,
+			LabelIDs:    labelIDs,
+			Attachments: uuids,
+			IsPull:      true,
+		}); err != nil {
+			if repo_model.IsErrUserDoesNotHaveAccessToRepo(err) || IsErrNewIssueInsert(err) {
+				return err
+			}
+			return fmt.Errorf("newIssue: %w", err)
+		}
 
-	return nil
+		pr.Index = issue.Index
+		pr.BaseRepo = repo
+		pr.IssueID = issue.ID
+		if err = db.Insert(ctx, pr); err != nil {
+			return fmt.Errorf("insert pull repo: %w", err)
+		}
+		return nil
+	})
 }
 
 // GetUnmergedPullRequest returns a pull request that is open and has not been merged
@@ -1028,22 +1015,19 @@ func TokenizeCodeOwnersLine(line string) []string {
 
 // InsertPullRequests inserted pull requests
 func InsertPullRequests(ctx context.Context, prs ...*PullRequest) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-	sess := db.GetEngine(ctx)
-	for _, pr := range prs {
-		if err := insertIssue(ctx, pr.Issue); err != nil {
-			return err
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		sess := db.GetEngine(ctx)
+		for _, pr := range prs {
+			if err := insertIssue(ctx, pr.Issue); err != nil {
+				return err
+			}
+			pr.IssueID = pr.Issue.ID
+			if _, err := sess.NoAutoTime().Insert(pr); err != nil {
+				return err
+			}
 		}
-		pr.IssueID = pr.Issue.ID
-		if _, err := sess.NoAutoTime().Insert(pr); err != nil {
-			return err
-		}
-	}
-	return committer.Commit()
+		return nil
+	})
 }
 
 // GetPullRequestByMergedCommit returns a merged pull request by the given commit

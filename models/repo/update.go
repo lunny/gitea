@@ -19,19 +19,11 @@ func UpdateRepositoryOwnerNames(ctx context.Context, ownerID int64, ownerName st
 	if ownerID == 0 {
 		return nil
 	}
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
 
-	if _, err := db.GetEngine(ctx).Where("owner_id = ?", ownerID).Cols("owner_name").Update(&Repository{
+	_, err := db.GetEngine(ctx).Where("owner_id = ?", ownerID).Cols("owner_name").Update(&Repository{
 		OwnerName: ownerName,
-	}); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+	})
+	return err
 }
 
 // UpdateRepositoryUpdatedTime updates a repository's updated time

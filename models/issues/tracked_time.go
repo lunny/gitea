@@ -241,72 +241,58 @@ func TotalTimesForEachUser(ctx context.Context, options *FindTrackedTimesOptions
 
 // DeleteIssueUserTimes deletes times for issue
 func DeleteIssueUserTimes(ctx context.Context, issue *Issue, user *user_model.User) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
 	opts := FindTrackedTimesOptions{
 		IssueID: issue.ID,
 		UserID:  user.ID,
 	}
 
-	removedTime, err := deleteTimes(ctx, opts)
-	if err != nil {
-		return err
-	}
-	if removedTime == 0 {
-		return db.ErrNotExist{Resource: "tracked_time"}
-	}
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		removedTime, err := deleteTimes(ctx, opts)
+		if err != nil {
+			return err
+		}
+		if removedTime == 0 {
+			return db.ErrNotExist{Resource: "tracked_time"}
+		}
 
-	if err := issue.LoadRepo(ctx); err != nil {
+		if err := issue.LoadRepo(ctx); err != nil {
+			return err
+		}
+		_, err = CreateComment(ctx, &CreateCommentOptions{
+			Issue: issue,
+			Repo:  issue.Repo,
+			Doer:  user,
+			// Content before v1.21 did store the formated string instead of seconds,
+			// so use "|" as delimeter to mark the new format
+			Content: fmt.Sprintf("|%d", removedTime),
+			Type:    CommentTypeDeleteTimeManual,
+		})
 		return err
-	}
-	if _, err := CreateComment(ctx, &CreateCommentOptions{
-		Issue: issue,
-		Repo:  issue.Repo,
-		Doer:  user,
-		// Content before v1.21 did store the formated string instead of seconds,
-		// so use "|" as delimeter to mark the new format
-		Content: fmt.Sprintf("|%d", removedTime),
-		Type:    CommentTypeDeleteTimeManual,
-	}); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+	})
 }
 
 // DeleteTime delete a specific Time
 func DeleteTime(ctx context.Context, t *TrackedTime) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err := t.LoadAttributes(ctx); err != nil {
+			return err
+		}
 
-	if err := t.LoadAttributes(ctx); err != nil {
-		return err
-	}
+		if err := deleteTime(ctx, t); err != nil {
+			return err
+		}
 
-	if err := deleteTime(ctx, t); err != nil {
+		_, err := CreateComment(ctx, &CreateCommentOptions{
+			Issue: t.Issue,
+			Repo:  t.Issue.Repo,
+			Doer:  t.User,
+			// Content before v1.21 did store the formated string instead of seconds,
+			// so use "|" as delimeter to mark the new format
+			Content: fmt.Sprintf("|%d", t.Time),
+			Type:    CommentTypeDeleteTimeManual,
+		})
 		return err
-	}
-
-	if _, err := CreateComment(ctx, &CreateCommentOptions{
-		Issue: t.Issue,
-		Repo:  t.Issue.Repo,
-		Doer:  t.User,
-		// Content before v1.21 did store the formated string instead of seconds,
-		// so use "|" as delimeter to mark the new format
-		Content: fmt.Sprintf("|%d", t.Time),
-		Type:    CommentTypeDeleteTimeManual,
-	}); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+	})
 }
 
 func deleteTimes(ctx context.Context, opts FindTrackedTimesOptions) (removedTime int64, err error) {

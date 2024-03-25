@@ -121,21 +121,16 @@ func DeleteUploads(ctx context.Context, uploads ...*Upload) (err error) {
 		return nil
 	}
 
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	ids := make([]int64, len(uploads))
-	for i := 0; i < len(uploads); i++ {
-		ids[i] = uploads[i].ID
-	}
-	if err = db.DeleteByIDs[Upload](ctx, ids...); err != nil {
-		return fmt.Errorf("delete uploads: %w", err)
-	}
-
-	if err = committer.Commit(); err != nil {
+	if err := db.WithTx(ctx, func(ctx context.Context) error {
+		ids := make([]int64, len(uploads))
+		for i := 0; i < len(uploads); i++ {
+			ids[i] = uploads[i].ID
+		}
+		if err = db.DeleteByIDs[Upload](ctx, ids...); err != nil {
+			return fmt.Errorf("delete uploads: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 

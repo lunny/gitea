@@ -407,20 +407,12 @@ func StartRepositoryTransfer(ctx context.Context, doer, newOwner *user_model.Use
 // CancelRepositoryTransfer marks the repository as ready and remove pending transfer entry,
 // thus cancel the transfer process.
 func CancelRepositoryTransfer(ctx context.Context, repo *repo_model.Repository) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		repo.Status = repo_model.RepositoryReady
+		if err := repo_model.UpdateRepositoryCols(ctx, repo, "status"); err != nil {
+			return err
+		}
 
-	repo.Status = repo_model.RepositoryReady
-	if err := repo_model.UpdateRepositoryCols(ctx, repo, "status"); err != nil {
-		return err
-	}
-
-	if err := models.DeleteRepositoryTransfer(ctx, repo.ID); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+		return models.DeleteRepositoryTransfer(ctx, repo.ID)
+	})
 }

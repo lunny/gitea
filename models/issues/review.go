@@ -564,44 +564,41 @@ func DismissReview(ctx context.Context, review *Review, isDismiss bool) (err err
 
 // InsertReviews inserts review and review comments
 func InsertReviews(ctx context.Context, reviews []*Review) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-	sess := db.GetEngine(ctx)
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		sess := db.GetEngine(ctx)
 
-	for _, review := range reviews {
-		if _, err := sess.NoAutoTime().Insert(review); err != nil {
-			return err
-		}
-
-		if _, err := sess.NoAutoTime().Insert(&Comment{
-			Type:             CommentTypeReview,
-			Content:          review.Content,
-			PosterID:         review.ReviewerID,
-			OriginalAuthor:   review.OriginalAuthor,
-			OriginalAuthorID: review.OriginalAuthorID,
-			IssueID:          review.IssueID,
-			ReviewID:         review.ID,
-			CreatedUnix:      review.CreatedUnix,
-			UpdatedUnix:      review.UpdatedUnix,
-		}); err != nil {
-			return err
-		}
-
-		for _, c := range review.Comments {
-			c.ReviewID = review.ID
-		}
-
-		if len(review.Comments) > 0 {
-			if _, err := sess.NoAutoTime().Insert(review.Comments); err != nil {
+		for _, review := range reviews {
+			if _, err := sess.NoAutoTime().Insert(review); err != nil {
 				return err
 			}
-		}
-	}
 
-	return committer.Commit()
+			if _, err := sess.NoAutoTime().Insert(&Comment{
+				Type:             CommentTypeReview,
+				Content:          review.Content,
+				PosterID:         review.ReviewerID,
+				OriginalAuthor:   review.OriginalAuthor,
+				OriginalAuthorID: review.OriginalAuthorID,
+				IssueID:          review.IssueID,
+				ReviewID:         review.ID,
+				CreatedUnix:      review.CreatedUnix,
+				UpdatedUnix:      review.UpdatedUnix,
+			}); err != nil {
+				return err
+			}
+
+			for _, c := range review.Comments {
+				c.ReviewID = review.ID
+			}
+
+			if len(review.Comments) > 0 {
+				if _, err := sess.NoAutoTime().Insert(review.Comments); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	})
 }
 
 // AddReviewRequest add a review request from one reviewer
@@ -904,12 +901,6 @@ func CanMarkConversation(ctx context.Context, issue *Issue, doer *user_model.Use
 
 // DeleteReview delete a review and it's code comments
 func DeleteReview(ctx context.Context, r *Review) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
 	if r.ID == 0 {
 		return fmt.Errorf("review is not allowed to be 0")
 	}
@@ -924,41 +915,43 @@ func DeleteReview(ctx context.Context, r *Review) error {
 		ReviewID: r.ID,
 	}
 
-	if _, err := db.Delete[Comment](ctx, opts); err != nil {
-		return err
-	}
-
-	opts = FindCommentsOptions{
-		Type:     CommentTypeReview,
-		IssueID:  r.IssueID,
-		ReviewID: r.ID,
-	}
-
-	if _, err := db.Delete[Comment](ctx, opts); err != nil {
-		return err
-	}
-
-	opts = FindCommentsOptions{
-		Type:     CommentTypeDismissReview,
-		IssueID:  r.IssueID,
-		ReviewID: r.ID,
-	}
-
-	if _, err := db.Delete[Comment](ctx, opts); err != nil {
-		return err
-	}
-
-	if _, err := db.DeleteByID[Review](ctx, r.ID); err != nil {
-		return err
-	}
-
-	if r.Official {
-		if err := restoreLatestOfficialReview(ctx, r.IssueID, r.ReviewerID); err != nil {
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if _, err := db.Delete[Comment](ctx, opts); err != nil {
 			return err
 		}
-	}
 
-	return committer.Commit()
+		opts = FindCommentsOptions{
+			Type:     CommentTypeReview,
+			IssueID:  r.IssueID,
+			ReviewID: r.ID,
+		}
+
+		if _, err := db.Delete[Comment](ctx, opts); err != nil {
+			return err
+		}
+
+		opts = FindCommentsOptions{
+			Type:     CommentTypeDismissReview,
+			IssueID:  r.IssueID,
+			ReviewID: r.ID,
+		}
+
+		if _, err := db.Delete[Comment](ctx, opts); err != nil {
+			return err
+		}
+
+		if _, err := db.DeleteByID[Review](ctx, r.ID); err != nil {
+			return err
+		}
+
+		if r.Official {
+			if err := restoreLatestOfficialReview(ctx, r.IssueID, r.ReviewerID); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 // GetCodeCommentsCount return count of CodeComments a Review has

@@ -256,27 +256,19 @@ func NewProject(ctx context.Context, p *Project) error {
 		return util.NewInvalidArgumentErrorf("project type is not valid")
 	}
 
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	if err := db.Insert(ctx, p); err != nil {
-		return err
-	}
-
-	if p.RepoID > 0 {
-		if _, err := db.Exec(ctx, "UPDATE `repository` SET num_projects = num_projects + 1 WHERE id = ?", p.RepoID); err != nil {
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		if err := db.Insert(ctx, p); err != nil {
 			return err
 		}
-	}
 
-	if err := createBoardsForProjectsType(ctx, p); err != nil {
-		return err
-	}
+		if p.RepoID > 0 {
+			if _, err := db.Exec(ctx, "UPDATE `repository` SET num_projects = num_projects + 1 WHERE id = ?", p.RepoID); err != nil {
+				return err
+			}
+		}
 
-	return committer.Commit()
+		return createBoardsForProjectsType(ctx, p)
+	})
 }
 
 // GetProjectByID returns the projects in a repository
@@ -343,41 +335,24 @@ func updateRepositoryProjectCount(ctx context.Context, repoID int64) error {
 
 // ChangeProjectStatusByRepoIDAndID toggles a project between opened and closed
 func ChangeProjectStatusByRepoIDAndID(ctx context.Context, repoID, projectID int64, isClosed bool) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		p := new(Project)
+		has, err := db.GetEngine(ctx).ID(projectID).Where("repo_id = ?", repoID).Get(p)
+		if err != nil {
+			return err
+		} else if !has {
+			return ErrProjectNotExist{ID: projectID, RepoID: repoID}
+		}
 
-	p := new(Project)
-
-	has, err := db.GetEngine(ctx).ID(projectID).Where("repo_id = ?", repoID).Get(p)
-	if err != nil {
-		return err
-	} else if !has {
-		return ErrProjectNotExist{ID: projectID, RepoID: repoID}
-	}
-
-	if err := changeProjectStatus(ctx, p, isClosed); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+		return changeProjectStatus(ctx, p, isClosed)
+	})
 }
 
 // ChangeProjectStatus toggle a project between opened and closed
 func ChangeProjectStatus(ctx context.Context, p *Project, isClosed bool) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	if err := changeProjectStatus(ctx, p, isClosed); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		return changeProjectStatus(ctx, p, isClosed)
+	})
 }
 
 func changeProjectStatus(ctx context.Context, p *Project, isClosed bool) error {

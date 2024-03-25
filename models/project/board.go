@@ -153,17 +153,9 @@ func NewBoard(ctx context.Context, board *Board) error {
 
 // DeleteBoardByID removes all issues references to the project board.
 func DeleteBoardByID(ctx context.Context, boardID int64) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	if err := deleteBoardByID(ctx, boardID); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		return deleteBoardByID(ctx, boardID)
+	})
 }
 
 func deleteBoardByID(ctx context.Context, boardID int64) error {

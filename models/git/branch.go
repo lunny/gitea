@@ -289,96 +289,87 @@ func FindRenamedBranch(ctx context.Context, repoID int64, from string) (branch *
 
 // RenameBranch rename a branch
 func RenameBranch(ctx context.Context, repo *repo_model.Repository, from, to string, gitAction func(ctx context.Context, isDefault bool) error) (err error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		sess := db.GetEngine(ctx)
 
-	sess := db.GetEngine(ctx)
-
-	var branch Branch
-	exist, err := db.GetEngine(ctx).Where("repo_id=? AND name=?", repo.ID, from).Get(&branch)
-	if err != nil {
-		return err
-	} else if !exist || branch.IsDeleted {
-		return ErrBranchNotExist{
-			RepoID:     repo.ID,
-			BranchName: from,
+		var branch Branch
+		exist, err := sess.Where("repo_id=? AND name=?", repo.ID, from).Get(&branch)
+		if err != nil {
+			return err
+		} else if !exist || branch.IsDeleted {
+			return ErrBranchNotExist{
+				RepoID:     repo.ID,
+				BranchName: from,
+			}
 		}
-	}
 
-	// 1. update branch in database
-	if n, err := sess.Where("repo_id=? AND name=?", repo.ID, from).Update(&Branch{
-		Name: to,
-	}); err != nil {
-		return err
-	} else if n <= 0 {
-		return ErrBranchNotExist{
-			RepoID:     repo.ID,
-			BranchName: from,
+		// 1. update branch in database
+		if n, err := sess.Where("repo_id=? AND name=?", repo.ID, from).Update(&Branch{
+			Name: to,
+		}); err != nil {
+			return err
+		} else if n <= 0 {
+			return ErrBranchNotExist{
+				RepoID:     repo.ID,
+				BranchName: from,
+			}
 		}
-	}
 
-	// 2. update default branch if needed
-	isDefault := repo.DefaultBranch == from
-	if isDefault {
-		repo.DefaultBranch = to
-		_, err = sess.ID(repo.ID).Cols("default_branch").Update(repo)
+		// 2. update default branch if needed
+		isDefault := repo.DefaultBranch == from
+		if isDefault {
+			repo.DefaultBranch = to
+			_, err = sess.ID(repo.ID).Cols("default_branch").Update(repo)
+			if err != nil {
+				return err
+			}
+		}
+
+		// 3. Update protected branch if needed
+		protectedBranch, err := GetProtectedBranchRuleByName(ctx, repo.ID, from)
 		if err != nil {
 			return err
 		}
-	}
 
-	// 3. Update protected branch if needed
-	protectedBranch, err := GetProtectedBranchRuleByName(ctx, repo.ID, from)
-	if err != nil {
-		return err
-	}
+		if protectedBranch != nil {
+			// there is a protect rule for this branch
+			protectedBranch.RuleName = to
+			_, err = sess.ID(protectedBranch.ID).Cols("branch_name").Update(protectedBranch)
+			if err != nil {
+				return err
+			}
+		} else {
+			// some glob protect rules may match this branch
+			protected, err := IsBranchProtected(ctx, repo.ID, from)
+			if err != nil {
+				return err
+			}
+			if protected {
+				return ErrBranchIsProtected
+			}
+		}
 
-	if protectedBranch != nil {
-		// there is a protect rule for this branch
-		protectedBranch.RuleName = to
-		_, err = sess.ID(protectedBranch.ID).Cols("branch_name").Update(protectedBranch)
+		// 4. Update all not merged pull request base branch name
+		_, err = sess.Table("pull_request").Where("base_repo_id=? AND base_branch=? AND has_merged=?",
+			repo.ID, from, false).
+			Update(map[string]any{"base_branch": to})
 		if err != nil {
 			return err
 		}
-	} else {
-		// some glob protect rules may match this branch
-		protected, err := IsBranchProtected(ctx, repo.ID, from)
-		if err != nil {
+
+		// 5. do git action
+		if err = gitAction(ctx, isDefault); err != nil {
 			return err
 		}
-		if protected {
-			return ErrBranchIsProtected
+
+		// 6. insert renamed branch record
+		renamedBranch := &RenamedBranch{
+			RepoID: repo.ID,
+			From:   from,
+			To:     to,
 		}
-	}
-
-	// 4. Update all not merged pull request base branch name
-	_, err = sess.Table("pull_request").Where("base_repo_id=? AND base_branch=? AND has_merged=?",
-		repo.ID, from, false).
-		Update(map[string]any{"base_branch": to})
-	if err != nil {
-		return err
-	}
-
-	// 5. do git action
-	if err = gitAction(ctx, isDefault); err != nil {
-		return err
-	}
-
-	// 6. insert renamed branch record
-	renamedBranch := &RenamedBranch{
-		RepoID: repo.ID,
-		From:   from,
-		To:     to,
-	}
-	err = db.Insert(ctx, renamedBranch)
-	if err != nil {
-		return err
-	}
-
-	return committer.Commit()
+		return db.Insert(ctx, renamedBranch)
+	})
 }
 
 // FindRecentlyPushedNewBranches return at most 2 new branches pushed by the user in 6 hours which has no opened PRs created

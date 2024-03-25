@@ -213,30 +213,25 @@ func UpdateLanguageStats(ctx context.Context, repo *Repository, commitID string,
 
 // CopyLanguageStat Copy originalRepo language stat information to destRepo (use for forked repo)
 func CopyLanguageStat(ctx context.Context, originalRepo, destRepo *Repository) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		repoLang := make(LanguageStatList, 0, 6)
+		if err := db.GetEngine(ctx).Where("`repo_id` = ?", originalRepo.ID).Desc("`size`").Find(&repoLang); err != nil {
+			return err
+		}
+		if len(repoLang) == 0 {
+			return nil
+		}
 
-	RepoLang := make(LanguageStatList, 0, 6)
-	if err := db.GetEngine(ctx).Where("`repo_id` = ?", originalRepo.ID).Desc("`size`").Find(&RepoLang); err != nil {
-		return err
-	}
-	if len(RepoLang) > 0 {
-		for i := range RepoLang {
-			RepoLang[i].ID = 0
-			RepoLang[i].RepoID = destRepo.ID
-			RepoLang[i].CreatedUnix = timeutil.TimeStampNow()
+		for i := range repoLang {
+			repoLang[i].ID = 0
+			repoLang[i].RepoID = destRepo.ID
+			repoLang[i].CreatedUnix = timeutil.TimeStampNow()
 		}
 		// update destRepo's indexer status
-		tmpCommitID := RepoLang[0].CommitID
+		tmpCommitID := repoLang[0].CommitID
 		if err := UpdateIndexerStatus(ctx, destRepo, RepoIndexerTypeStats, tmpCommitID); err != nil {
 			return err
 		}
-		if err := db.Insert(ctx, &RepoLang); err != nil {
-			return err
-		}
-	}
-	return committer.Commit()
+		return db.Insert(ctx, &repoLang)
+	})
 }
