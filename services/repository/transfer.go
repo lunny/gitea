@@ -323,17 +323,9 @@ func changeRepositoryName(ctx context.Context, doer *user_model.User, repo *repo
 		}
 	}
 
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	if err := repo_model.NewRedirect(ctx, repo.Owner.ID, repo.ID, oldRepoName, newRepoName); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		return repo_model.NewRedirect(ctx, repo.Owner.ID, repo.ID, oldRepoName, newRepoName)
+	})
 }
 
 // ChangeRepositoryName changes all corresponding setting from old repository name to new one.

@@ -414,17 +414,9 @@ func RemoveRepositoryFromTeam(ctx context.Context, t *organization.Team, repoID 
 		return err
 	}
 
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	if err = removeRepositoryFromTeam(ctx, t, repo, true); err != nil {
-		return err
-	}
-
-	return committer.Commit()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		return removeRepositoryFromTeam(ctx, t, repo, true)
+	})
 }
 
 // DeleteOwnerRepositoriesDirectly calls DeleteRepositoryDirectly for all repos of the given owner

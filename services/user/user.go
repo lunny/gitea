@@ -51,62 +51,57 @@ func RenameUser(ctx context.Context, u *user_model.User, newUserName string) err
 	onlyCapitalization := strings.EqualFold(newUserName, u.Name)
 	oldUserName := u.Name
 
-	if onlyCapitalization {
-		u.Name = newUserName
-		if err := user_model.UpdateUserCols(ctx, u, "name"); err != nil {
-			u.Name = oldUserName
+	if err := db.WithTx(ctx, func(ctx context.Context) error {
+		if onlyCapitalization {
+			u.Name = newUserName
+			if err := user_model.UpdateUserCols(ctx, u, "name"); err != nil {
+				u.Name = oldUserName
+				return err
+			}
+			return repo_model.UpdateRepositoryOwnerNames(ctx, u.ID, newUserName)
+		}
+
+		isExist, err := user_model.IsUserExist(ctx, u.ID, newUserName)
+		if err != nil {
 			return err
 		}
-		return repo_model.UpdateRepositoryOwnerNames(ctx, u.ID, newUserName)
-	}
-
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-
-	isExist, err := user_model.IsUserExist(ctx, u.ID, newUserName)
-	if err != nil {
-		return err
-	}
-	if isExist {
-		return user_model.ErrUserAlreadyExist{
-			Name: newUserName,
+		if isExist {
+			return user_model.ErrUserAlreadyExist{
+				Name: newUserName,
+			}
 		}
-	}
 
-	if err = repo_model.UpdateRepositoryOwnerName(ctx, oldUserName, newUserName); err != nil {
-		return err
-	}
+		if err = repo_model.UpdateRepositoryOwnerName(ctx, oldUserName, newUserName); err != nil {
+			return err
+		}
 
-	if err = user_model.NewUserRedirect(ctx, u.ID, oldUserName, newUserName); err != nil {
-		return err
-	}
+		if err = user_model.NewUserRedirect(ctx, u.ID, oldUserName, newUserName); err != nil {
+			return err
+		}
 
-	if err := agit.UserNameChanged(ctx, u, newUserName); err != nil {
-		return err
-	}
-	if err := container_service.UpdateRepositoryNames(ctx, u, newUserName); err != nil {
-		return err
-	}
+		if err := agit.UserNameChanged(ctx, u, newUserName); err != nil {
+			return err
+		}
+		if err := container_service.UpdateRepositoryNames(ctx, u, newUserName); err != nil {
+			return err
+		}
 
-	u.Name = newUserName
-	u.LowerName = strings.ToLower(newUserName)
-	if err := user_model.UpdateUserCols(ctx, u, "name", "lower_name"); err != nil {
-		u.Name = oldUserName
-		u.LowerName = strings.ToLower(oldUserName)
-		return err
-	}
+		u.Name = newUserName
+		u.LowerName = strings.ToLower(newUserName)
+		if err := user_model.UpdateUserCols(ctx, u, "name", "lower_name"); err != nil {
+			u.Name = oldUserName
+			u.LowerName = strings.ToLower(oldUserName)
+			return err
+		}
 
-	// Do not fail if directory does not exist
-	if err = util.Rename(user_model.UserPath(oldUserName), user_model.UserPath(newUserName)); err != nil && !os.IsNotExist(err) {
-		u.Name = oldUserName
-		u.LowerName = strings.ToLower(oldUserName)
-		return fmt.Errorf("rename user directory: %w", err)
-	}
-
-	if err = committer.Commit(); err != nil {
+		// Do not fail if directory does not exist
+		if err = util.Rename(user_model.UserPath(oldUserName), user_model.UserPath(newUserName)); err != nil && !os.IsNotExist(err) {
+			u.Name = oldUserName
+			u.LowerName = strings.ToLower(oldUserName)
+			return fmt.Errorf("rename user directory: %w", err)
+		}
+		return nil
+	}); err != nil {
 		u.Name = oldUserName
 		u.LowerName = strings.ToLower(oldUserName)
 		if err2 := util.Rename(user_model.UserPath(newUserName), user_model.UserPath(oldUserName)); err2 != nil && !os.IsNotExist(err2) {
@@ -210,52 +205,46 @@ func DeleteUser(ctx context.Context, u *user_model.User, purge bool) error {
 		}
 	}
 
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
+	if err := db.WithTx(ctx, func(ctx context.Context) error {
+		// Note: A user owns any repository or belongs to any organization
+		//	cannot perform delete operation. This causes a race with the purge above
+		//  however consistency requires that we ensure that this is the case
+
+		// Check ownership of repository.
+		count, err := repo_model.CountRepositories(ctx, repo_model.CountRepositoryOptions{OwnerID: u.ID})
+		if err != nil {
+			return fmt.Errorf("GetRepositoryCount: %w", err)
+		} else if count > 0 {
+			return models.ErrUserOwnRepos{UID: u.ID}
+		}
+
+		// Check membership of organization.
+		count, err = organization.GetOrganizationCount(ctx, u)
+		if err != nil {
+			return fmt.Errorf("GetOrganizationCount: %w", err)
+		} else if count > 0 {
+			return models.ErrUserHasOrgs{UID: u.ID}
+		}
+
+		// Check ownership of packages.
+		if ownsPackages, err := packages_model.HasOwnerPackages(ctx, u.ID); err != nil {
+			return fmt.Errorf("HasOwnerPackages: %w", err)
+		} else if ownsPackages {
+			return models.ErrUserOwnPackages{UID: u.ID}
+		}
+
+		if err := deleteUser(ctx, u, purge); err != nil {
+			return fmt.Errorf("DeleteUser: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer committer.Close()
 
-	// Note: A user owns any repository or belongs to any organization
-	//	cannot perform delete operation. This causes a race with the purge above
-	//  however consistency requires that we ensure that this is the case
-
-	// Check ownership of repository.
-	count, err := repo_model.CountRepositories(ctx, repo_model.CountRepositoryOptions{OwnerID: u.ID})
-	if err != nil {
-		return fmt.Errorf("GetRepositoryCount: %w", err)
-	} else if count > 0 {
-		return models.ErrUserOwnRepos{UID: u.ID}
-	}
-
-	// Check membership of organization.
-	count, err = organization.GetOrganizationCount(ctx, u)
-	if err != nil {
-		return fmt.Errorf("GetOrganizationCount: %w", err)
-	} else if count > 0 {
-		return models.ErrUserHasOrgs{UID: u.ID}
-	}
-
-	// Check ownership of packages.
-	if ownsPackages, err := packages_model.HasOwnerPackages(ctx, u.ID); err != nil {
-		return fmt.Errorf("HasOwnerPackages: %w", err)
-	} else if ownsPackages {
-		return models.ErrUserOwnPackages{UID: u.ID}
-	}
-
-	if err := deleteUser(ctx, u, purge); err != nil {
-		return fmt.Errorf("DeleteUser: %w", err)
-	}
-
-	if err := committer.Commit(); err != nil {
+	if err := asymkey_service.RewriteAllPublicKeys(ctx); err != nil {
 		return err
 	}
-	committer.Close()
-
-	if err = asymkey_service.RewriteAllPublicKeys(ctx); err != nil {
-		return err
-	}
-	if err = asymkey_service.RewriteAllPrincipalKeys(ctx); err != nil {
+	if err := asymkey_service.RewriteAllPrincipalKeys(ctx); err != nil {
 		return err
 	}
 

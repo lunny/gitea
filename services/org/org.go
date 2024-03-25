@@ -20,39 +20,34 @@ import (
 
 // DeleteOrganization completely and permanently deletes everything of organization.
 func DeleteOrganization(ctx context.Context, org *org_model.Organization, purge bool) error {
-	ctx, commiter, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer commiter.Close()
-
-	if purge {
-		err := repo_service.DeleteOwnerRepositoriesDirectly(ctx, org.AsUser())
-		if err != nil {
-			return err
+	if err := db.WithTx(ctx, func(ctx context.Context) error {
+		if purge {
+			err := repo_service.DeleteOwnerRepositoriesDirectly(ctx, org.AsUser())
+			if err != nil {
+				return err
+			}
 		}
-	}
 
-	// Check ownership of repository.
-	count, err := repo_model.CountRepositories(ctx, repo_model.CountRepositoryOptions{OwnerID: org.ID})
-	if err != nil {
-		return fmt.Errorf("GetRepositoryCount: %w", err)
-	} else if count > 0 {
-		return models.ErrUserOwnRepos{UID: org.ID}
-	}
+		// Check ownership of repository.
+		count, err := repo_model.CountRepositories(ctx, repo_model.CountRepositoryOptions{OwnerID: org.ID})
+		if err != nil {
+			return fmt.Errorf("GetRepositoryCount: %w", err)
+		} else if count > 0 {
+			return models.ErrUserOwnRepos{UID: org.ID}
+		}
 
-	// Check ownership of packages.
-	if ownsPackages, err := packages_model.HasOwnerPackages(ctx, org.ID); err != nil {
-		return fmt.Errorf("HasOwnerPackages: %w", err)
-	} else if ownsPackages {
-		return models.ErrUserOwnPackages{UID: org.ID}
-	}
+		// Check ownership of packages.
+		if ownsPackages, err := packages_model.HasOwnerPackages(ctx, org.ID); err != nil {
+			return fmt.Errorf("HasOwnerPackages: %w", err)
+		} else if ownsPackages {
+			return models.ErrUserOwnPackages{UID: org.ID}
+		}
 
-	if err := org_model.DeleteOrganization(ctx, org); err != nil {
-		return fmt.Errorf("DeleteOrganization: %w", err)
-	}
-
-	if err := commiter.Commit(); err != nil {
+		if err := org_model.DeleteOrganization(ctx, org); err != nil {
+			return fmt.Errorf("DeleteOrganization: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 
@@ -71,6 +66,5 @@ func DeleteOrganization(ctx context.Context, org *org_model.Organization, purge 
 			return fmt.Errorf("failed to remove %s: %w", avatarPath, err)
 		}
 	}
-
 	return nil
 }

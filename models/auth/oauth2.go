@@ -278,12 +278,6 @@ type UpdateOAuth2ApplicationOptions struct {
 
 // UpdateOAuth2Application updates an oauth2 application
 func UpdateOAuth2Application(ctx context.Context, opts UpdateOAuth2ApplicationOptions) (*OAuth2Application, error) {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer committer.Close()
-
 	app, err := GetOAuth2ApplicationByID(ctx, opts.ID)
 	if err != nil {
 		return nil, err
@@ -300,19 +294,13 @@ func UpdateOAuth2Application(ctx context.Context, opts UpdateOAuth2ApplicationOp
 	app.RedirectURIs = opts.RedirectURIs
 	app.ConfidentialClient = opts.ConfidentialClient
 
-	if err = updateOAuth2Application(ctx, app); err != nil {
+	if _, err := db.GetEngine(ctx).ID(app.ID).UseBool("confidential_client").Update(app); err != nil {
 		return nil, err
 	}
+
 	app.ClientSecret = ""
 
-	return app, committer.Commit()
-}
-
-func updateOAuth2Application(ctx context.Context, app *OAuth2Application) error {
-	if _, err := db.GetEngine(ctx).ID(app.ID).UseBool("confidential_client").Update(app); err != nil {
-		return err
-	}
-	return nil
+	return app, nil
 }
 
 func deleteOAuth2Application(ctx context.Context, id, userid int64) error {
@@ -346,23 +334,17 @@ func deleteOAuth2Application(ctx context.Context, id, userid int64) error {
 
 // DeleteOAuth2Application deletes the application with the given id and the grants and auth codes related to it. It checks if the userid was the creator of the app.
 func DeleteOAuth2Application(ctx context.Context, id, userid int64) error {
-	ctx, committer, err := db.TxContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer committer.Close()
-	app, err := GetOAuth2ApplicationByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	builtinApps := BuiltinApplications()
-	if _, builtin := builtinApps[app.ClientID]; builtin {
-		return fmt.Errorf("failed to delete OAuth2 application: application is locked: %s", app.ClientID)
-	}
-	if err := deleteOAuth2Application(ctx, id, userid); err != nil {
-		return err
-	}
-	return committer.Commit()
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		app, err := GetOAuth2ApplicationByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		builtinApps := BuiltinApplications()
+		if _, builtin := builtinApps[app.ClientID]; builtin {
+			return fmt.Errorf("failed to delete OAuth2 application: application is locked: %s", app.ClientID)
+		}
+		return deleteOAuth2Application(ctx, id, userid)
+	})
 }
 
 //////////////////////////////////////////////////////
