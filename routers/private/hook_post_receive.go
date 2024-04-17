@@ -47,9 +47,13 @@ func HookPostReceive(ctx *gitea_context.PrivateContext) {
 
 	updates := make([]*repo_module.PushUpdateOptions, 0, len(opts.OldCommitIDs))
 	wasEmpty := false
+	hasBranch := false
 
 	for i := range opts.OldCommitIDs {
 		refFullName := opts.RefFullNames[i]
+		if !hasBranch && refFullName.IsBranch() {
+			hasBranch = true
+		}
 
 		// Only trigger activity updates for changes to branches or
 		// tags.  Updates to other refs (eg, refs/notes, refs/changes,
@@ -87,18 +91,12 @@ func HookPostReceive(ctx *gitea_context.PrivateContext) {
 		}
 	}
 
-	if repo != nil && len(updates) > 0 {
+	// If we have branches push then sync updates to the DB
+	if hasBranch && repo != nil {
 		branchesToSync := make([]*repo_module.PushUpdateOptions, 0, len(updates))
 		for _, update := range updates {
 			if !update.RefFullName.IsBranch() {
 				continue
-			}
-			if repo == nil {
-				repo = loadRepository(ctx, ownerName, repoName)
-				if ctx.Written() {
-					return
-				}
-				wasEmpty = repo.IsEmpty
 			}
 
 			if update.IsDelRef() {
@@ -145,7 +143,9 @@ func HookPostReceive(ctx *gitea_context.PrivateContext) {
 				return
 			}
 		}
+	}
 
+	if len(updates) > 0 {
 		if err := repo_service.PushUpdates(updates); err != nil {
 			log.Error("Failed to Update: %s/%s Total Updates: %d", ownerName, repoName, len(updates))
 			for i, update := range updates {
