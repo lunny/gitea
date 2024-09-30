@@ -6,6 +6,7 @@ package oauth2_provider //nolint
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	auth "code.gitea.io/gitea/models/auth"
 	org_model "code.gitea.io/gitea/models/organization"
@@ -66,6 +67,20 @@ type AccessTokenResponse struct {
 	ExpiresIn    int64     `json:"expires_in"`
 	RefreshToken string    `json:"refresh_token"`
 	IDToken      string    `json:"id_token,omitempty"`
+}
+
+// check if groups are public only
+func IfOnlyPublicGroups(scopes string) bool {
+	scopes = strings.ReplaceAll(scopes, ",", " ")
+	scopesList := strings.Fields(scopes)
+	for _, scope := range scopesList {
+		if scope == "public-only" {
+			return true
+		} else if scope == "all" || scope == "read:organization" || scope == "read:admin" {
+			return false
+		}
+	}
+	return true
 }
 
 func NewAccessTokenResponse(ctx context.Context, grant *auth.OAuth2Grant, serverKey, clientKey JWTSigningKey) (*AccessTokenResponse, *AccessTokenError) {
@@ -160,7 +175,9 @@ func NewAccessTokenResponse(ctx context.Context, grant *auth.OAuth2Grant, server
 			idToken.EmailVerified = user.IsActive
 		}
 		if grant.ScopeContains("groups") {
-			groups, err := GetOAuthGroupsForUser(ctx, user)
+			onlyPublicGroups := IfOnlyPublicGroups(grant.Scope)
+
+			groups, err := GetOAuthGroupsForUser(ctx, user, onlyPublicGroups)
 			if err != nil {
 				log.Error("Error getting groups: %v", err)
 				return nil, &AccessTokenError{
@@ -191,7 +208,7 @@ func NewAccessTokenResponse(ctx context.Context, grant *auth.OAuth2Grant, server
 
 // returns a list of "org" and "org:team" strings,
 // that the given user is a part of.
-func GetOAuthGroupsForUser(ctx context.Context, user *user_model.User) ([]string, error) {
+func GetOAuthGroupsForUser(ctx context.Context, user *user_model.User, onlyPublicGroups bool) ([]string, error) {
 	orgs, err := org_model.GetUserOrgsList(ctx, user)
 	if err != nil {
 		return nil, fmt.Errorf("GetUserOrgList: %w", err)
@@ -199,6 +216,18 @@ func GetOAuthGroupsForUser(ctx context.Context, user *user_model.User) ([]string
 
 	var groups []string
 	for _, org := range orgs {
+		// process additional scopes only if enabled in settings
+		// this could be removed once additional scopes get accepted
+		if setting.OAuth2.EnableAdditionalGrantScopes {
+			if onlyPublicGroups {
+				if public, err := org_model.IsPublicMembership(ctx, org.ID, user.ID); err == nil {
+					if !public || !org.Visibility.IsPublic() {
+						continue
+					}
+				}
+			}
+		}
+
 		groups = append(groups, org.Name)
 		teams, err := org.LoadTeams(ctx)
 		if err != nil {

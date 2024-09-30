@@ -7,6 +7,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,28 +26,75 @@ var (
 	_ Method = &OAuth2{}
 )
 
+// GrantAdditionalScopes returns valid scopes coming from grant
+func GrantAdditionalScopes(grantScopes string) string {
+	// process additional scopes only if enabled in settings
+	// this could be removed once additional scopes get accepted
+	if !setting.OAuth2.EnableAdditionalGrantScopes {
+		return ""
+	}
+
+	// scopes_supported from templates/user/auth/oidc_wellknown.tmpl
+	scopesSupported := []string{
+		"openid",
+		"profile",
+		"email",
+		"groups",
+	}
+
+	var apiTokenScopes []string
+	for _, apiTokenScope := range strings.Split(grantScopes, " ") {
+		if slices.Index(scopesSupported, apiTokenScope) == -1 {
+			apiTokenScopes = append(apiTokenScopes, apiTokenScope)
+		}
+	}
+
+	if len(apiTokenScopes) == 0 {
+		return ""
+	}
+
+	var additionalGrantScopes []string
+	allScopes := auth_model.AccessTokenScope("all")
+
+	for _, apiTokenScope := range apiTokenScopes {
+		grantScope := auth_model.AccessTokenScope(apiTokenScope)
+		if ok, _ := allScopes.HasScope(grantScope); ok {
+			additionalGrantScopes = append(additionalGrantScopes, apiTokenScope)
+		} else if apiTokenScope == "public-only" {
+			additionalGrantScopes = append(additionalGrantScopes, apiTokenScope)
+		}
+	}
+	if len(additionalGrantScopes) > 0 {
+		return strings.Join(additionalGrantScopes, ",")
+	}
+
+	return ""
+}
+
 // CheckOAuthAccessToken returns uid of user from oauth token
-func CheckOAuthAccessToken(ctx context.Context, accessToken string) int64 {
+// + non default openid scopes requested
+func CheckOAuthAccessToken(ctx context.Context, accessToken string) (int64, string) {
 	// JWT tokens require a "."
 	if !strings.Contains(accessToken, ".") {
-		return 0
+		return 0, ""
 	}
 	token, err := oauth2_provider.ParseToken(accessToken, oauth2_provider.DefaultSigningKey)
 	if err != nil {
 		log.Trace("oauth2.ParseToken: %v", err)
-		return 0
+		return 0, ""
 	}
 	var grant *auth_model.OAuth2Grant
 	if grant, err = auth_model.GetOAuth2GrantByID(ctx, token.GrantID); err != nil || grant == nil {
-		return 0
+		return 0, ""
 	}
 	if token.Kind != oauth2_provider.KindAccessToken {
-		return 0
+		return 0, ""
 	}
 	if token.ExpiresAt.Before(time.Now()) || token.IssuedAt.After(time.Now()) {
-		return 0
+		return 0, ""
 	}
-	return grant.UserID
+	grantScopes := GrantAdditionalScopes(grant.Scope)
+	return grant.UserID, grantScopes
 }
 
 // OAuth2 implements the Auth interface and authenticates requests
@@ -92,10 +140,15 @@ func parseToken(req *http.Request) (string, bool) {
 func (o *OAuth2) userIDFromToken(ctx context.Context, tokenSHA string, store DataStore) int64 {
 	// Let's see if token is valid.
 	if strings.Contains(tokenSHA, ".") {
-		uid := CheckOAuthAccessToken(ctx, tokenSHA)
+		uid, grantScopes := CheckOAuthAccessToken(ctx, tokenSHA)
+
 		if uid != 0 {
 			store.GetData()["IsApiToken"] = true
-			store.GetData()["ApiTokenScope"] = auth_model.AccessTokenScopeAll // fallback to all
+			if grantScopes != "" {
+				store.GetData()["ApiTokenScope"] = auth_model.AccessTokenScope(grantScopes)
+			} else {
+				store.GetData()["ApiTokenScope"] = auth_model.AccessTokenScopeAll // fallback to all
+			}
 		}
 		return uid
 	}
