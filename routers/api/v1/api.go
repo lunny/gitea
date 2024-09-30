@@ -92,6 +92,7 @@ import (
 	"code.gitea.io/gitea/routers/api/v1/repo"
 	"code.gitea.io/gitea/routers/api/v1/settings"
 	"code.gitea.io/gitea/routers/api/v1/user"
+	"code.gitea.io/gitea/routers/api/v1/utils"
 	"code.gitea.io/gitea/routers/common"
 	"code.gitea.io/gitea/services/actions"
 	"code.gitea.io/gitea/services/auth"
@@ -182,6 +183,10 @@ func repoAssignment() func(ctx *context.APIContext) {
 			} else {
 				ctx.Error(http.StatusInternalServerError, "GetRepositoryByName", err)
 			}
+			return
+		}
+		if repo.IsPrivate && utils.PublicOnlyToken(ctx, "ApiTokenScopePublicRepoOnly") {
+			ctx.NotFound()
 			return
 		}
 
@@ -954,9 +959,9 @@ func Routes() *web.Router {
 					m.Get("/{target}", user.CheckFollowing)
 				})
 
-				m.Get("/starred", user.GetStarredRepos)
+				m.Get("/starred", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryRepository), user.GetStarredRepos)
 
-				m.Get("/subscriptions", user.GetWatchedRepos)
+				m.Get("/subscriptions", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryRepository), user.GetWatchedRepos)
 			}, context.UserAssignmentAPI())
 		}, tokenRequiresScopes(auth_model.AccessTokenScopeCategoryUser), reqToken())
 
@@ -1476,13 +1481,13 @@ func Routes() *web.Router {
 			m.Get("/{org}/permissions", reqToken(), org.GetUserOrgsPermissions)
 		}, tokenRequiresScopes(auth_model.AccessTokenScopeCategoryUser, auth_model.AccessTokenScopeCategoryOrganization), context.UserAssignmentAPI())
 		m.Post("/orgs", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization), reqToken(), bind(api.CreateOrgOption{}), org.Create)
-		m.Get("/orgs", org.GetAll, tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization))
+		m.Get("/orgs", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization), org.GetAll)
 		m.Group("/orgs/{org}", func() {
 			m.Combo("").Get(org.Get).
 				Patch(reqToken(), reqOrgOwnership(), bind(api.EditOrgOption{}), org.Edit).
 				Delete(reqToken(), reqOrgOwnership(), org.Delete)
-			m.Combo("/repos").Get(user.ListOrgRepos).
-				Post(reqToken(), bind(api.CreateRepoOption{}), repo.CreateOrgRepo)
+			m.Combo("/repos").Get(tokenRequiresScopes(auth_model.AccessTokenScopeCategoryRepository), user.ListOrgRepos).
+				Post(reqToken(), tokenRequiresScopes(auth_model.AccessTokenScopeCategoryRepository), bind(api.CreateRepoOption{}), repo.CreateOrgRepo)
 			m.Group("/members", func() {
 				m.Get("", reqToken(), org.ListMembers)
 				m.Combo("/{username}").Get(reqToken(), org.IsMember).
@@ -1550,7 +1555,7 @@ func Routes() *web.Router {
 					Put(reqToken(), org.AddTeamRepository).
 					Delete(reqToken(), org.RemoveTeamRepository).
 					Get(reqToken(), org.GetTeamRepo)
-			})
+			}, tokenRequiresScopes(auth_model.AccessTokenScopeCategoryRepository, auth_model.AccessTokenScopeCategoryRepository))
 			m.Get("/activities/feeds", org.ListTeamActivityFeeds)
 		}, tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization), orgAssignment(false, true), reqToken(), reqTeamMembership())
 
@@ -1570,23 +1575,25 @@ func Routes() *web.Router {
 						m.Post("", bind(api.CreateKeyOption{}), admin.CreatePublicKey)
 						m.Delete("/{id}", admin.DeleteUserPublicKey)
 					})
-					m.Get("/orgs", org.ListUserOrgs)
-					m.Post("/orgs", bind(api.CreateOrgOption{}), admin.CreateOrg)
-					m.Post("/repos", bind(api.CreateRepoOption{}), admin.CreateRepo)
+					m.Get("/orgs", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization), org.ListUserOrgs)
+					m.Get("/orgs", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization), org.ListUserOrgs)
+					m.Post("/orgs", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryOrganization), bind(api.CreateOrgOption{}), admin.CreateOrg)
+					m.Post("/repos", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryRepository), bind(api.CreateRepoOption{}), admin.CreateRepo)
 					m.Post("/rename", bind(api.RenameUserOption{}), admin.RenameUser)
 					m.Get("/badges", admin.ListUserBadges)
 					m.Post("/badges", bind(api.UserBadgeOption{}), admin.AddUserBadges)
 					m.Delete("/badges", bind(api.UserBadgeOption{}), admin.DeleteUserBadges)
 				}, context.UserAssignmentAPI())
-			})
+			}, tokenRequiresScopes(auth_model.AccessTokenScopeCategoryUser))
+
 			m.Group("/emails", func() {
 				m.Get("", admin.GetAllEmails)
 				m.Get("/search", admin.SearchEmail)
 			})
 			m.Group("/unadopted", func() {
 				m.Get("", admin.ListUnadoptedRepositories)
-				m.Post("/{username}/{reponame}", admin.AdoptRepository)
-				m.Delete("/{username}/{reponame}", admin.DeleteUnadoptedRepository)
+				m.Post("/{username}/{reponame}", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryRepository), admin.AdoptRepository)
+				m.Delete("/{username}/{reponame}", tokenRequiresScopes(auth_model.AccessTokenScopeCategoryRepository), admin.DeleteUnadoptedRepository)
 			})
 			m.Group("/hooks", func() {
 				m.Combo("").Get(admin.ListHooks).

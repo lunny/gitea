@@ -26,6 +26,9 @@ import (
 func listUserOrgs(ctx *context.APIContext, u *user_model.User) {
 	listOptions := utils.GetListOptions(ctx)
 	showPrivate := ctx.IsSigned && (ctx.Doer.IsAdmin || ctx.Doer.ID == u.ID)
+	if utils.PublicOnlyToken(ctx, "ApiTokenScopePublicOrgOnly") {
+		showPrivate = false
+	}
 
 	opts := organization.FindOrgOptions{
 		ListOptions:    listOptions,
@@ -191,10 +194,12 @@ func GetAll(ctx *context.APIContext) {
 	//     "$ref": "#/responses/OrganizationList"
 
 	vMode := []api.VisibleType{api.VisibleTypePublic}
-	if ctx.IsSigned {
-		vMode = append(vMode, api.VisibleTypeLimited)
-		if ctx.Doer.IsAdmin {
-			vMode = append(vMode, api.VisibleTypePrivate)
+	if !utils.PublicOnlyToken(ctx, "ApiTokenScopePublicOrgOnly") {
+		if ctx.IsSigned {
+			vMode = append(vMode, api.VisibleTypeLimited)
+			if ctx.Doer.IsAdmin {
+				vMode = append(vMode, api.VisibleTypePrivate)
+			}
 		}
 	}
 
@@ -301,6 +306,11 @@ func Get(ctx *context.APIContext) {
 
 	if !organization.HasOrgOrUserVisible(ctx, ctx.Org.Organization.AsUser(), ctx.Doer) {
 		ctx.NotFound("HasOrgOrUserVisible", nil)
+		return
+	}
+
+	if !ctx.Org.Organization.Visibility.IsPublic() && utils.PublicOnlyToken(ctx, "ApiTokenScopePublicOrgOnly") {
+		ctx.NotFound()
 		return
 	}
 

@@ -563,3 +563,192 @@ func deleteAPIAccessToken(t *testing.T, accessToken api.AccessToken, user *user_
 
 	unittest.AssertNotExistsBean(t, &auth_model.AccessToken{ID: accessToken.ID})
 }
+
+// TestAPIPublicOnlyTokenRepos tests that token with public-only scope only shows public repos
+func TestAPIPublicOnlyTokenRepos(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+
+	publicOnlyScopes := []auth_model.AccessTokenScope{"public-only", "read:user", "read:repository"}
+	publicOnlyAccessToken := createAPIAccessTokenWithoutCleanUp(t, "public-only-token", user, publicOnlyScopes)
+	publicOnlyReq := NewRequest(t, "GET", "/api/v1/user/repos").
+		AddTokenAuth(publicOnlyAccessToken.Token)
+	publicOnlyResp := MakeRequest(t, publicOnlyReq, http.StatusOK)
+	var publicOnlyRepos []api.Repository
+	DecodeJSON(t, publicOnlyResp, &publicOnlyRepos)
+	publicOnlyReposCaptured := make(map[string]int64)
+	for _, repo := range publicOnlyRepos {
+		publicOnlyReposCaptured[repo.Name] = repo.ID
+		assert.False(t, repo.Private)
+	}
+	publicOnlyReposExpected := map[string]int64{
+		"commits_search_test": 36,
+		"commitsonpr":         58,
+		"git_hooks_test":      37,
+		"glob":                42,
+		"repo-release":        57,
+		"repo1":               1,
+		"repo21":              32,
+		"utf8":                33,
+	}
+	assert.Equal(t, publicOnlyReposExpected, publicOnlyReposCaptured)
+
+	noPublicOnlyScopes := []auth_model.AccessTokenScope{"read:user", "read:repository"}
+	noPublicOnlyAccessToken := createAPIAccessTokenWithoutCleanUp(t, "no-public-only-token", user, noPublicOnlyScopes)
+	noPublicOnlyReq := NewRequest(t, "GET", "/api/v1/user/repos").
+		AddTokenAuth(noPublicOnlyAccessToken.Token)
+	noPublicOnlyResp := MakeRequest(t, noPublicOnlyReq, http.StatusOK)
+	var allRepos []api.Repository
+	DecodeJSON(t, noPublicOnlyResp, &allRepos)
+	allPrivateReposCaptured := make(map[string]int64)
+	for _, repo := range allRepos {
+		if repo.Private {
+			allPrivateReposCaptured[repo.Name] = repo.ID
+		}
+	}
+	allPrivateReposExpected := map[string]int64{
+		"big_test_private_4": 24,
+		"lfs":                54,
+		"readme-test":        56,
+		"repo15":             15,
+		"repo16":             16,
+		"repo2":              2,
+		"repo20":             31,
+		"repo3":              3,
+		"repo5":              5,
+		"scoped_label":       55,
+		"test_commit_revert": 59,
+	}
+
+	assert.Equal(t, allPrivateReposExpected, allPrivateReposCaptured)
+
+	privateRepo2Req := NewRequest(t, "GET", "/api/v1/repos/user2/repo2").
+		AddTokenAuth(noPublicOnlyAccessToken.Token)
+	privateRepo2Resp := MakeRequest(t, privateRepo2Req, http.StatusOK)
+	var repo2 api.Repository
+	DecodeJSON(t, privateRepo2Resp, &repo2)
+	assert.True(t, repo2.Private)
+
+	publicOnlyPrivateRepo2Req := NewRequest(t, "GET", "/api/v1/repos/user2/repo2").
+		AddTokenAuth(publicOnlyAccessToken.Token)
+	MakeRequest(t, publicOnlyPrivateRepo2Req, http.StatusNotFound)
+
+	// search query = repo1
+	searchPublicOnlyReposReq := NewRequest(t, "GET", "/api/v1/repos/search?q=repo1").
+		AddTokenAuth(publicOnlyAccessToken.Token)
+	searchPublicOnlyReposResp := MakeRequest(t, searchPublicOnlyReposReq, http.StatusOK)
+	var searchPublicOnlyRepos api.SearchResults
+	DecodeJSON(t, searchPublicOnlyReposResp, &searchPublicOnlyRepos)
+	var searchPublicOnlyRepoNamesCaptured []string
+	for _, repo := range searchPublicOnlyRepos.Data {
+		searchPublicOnlyRepoNamesCaptured = append(searchPublicOnlyRepoNamesCaptured, repo.Name)
+	}
+	searchPublicOnlyRepoNamesExpected := []string{
+		"repo1",
+		"repo10",
+		"repo11",
+	}
+
+	assert.Equal(t, searchPublicOnlyRepoNamesExpected, searchPublicOnlyRepoNamesCaptured)
+
+	notFoundPrivateByIDReq := NewRequest(t, "GET", "/api/v1/repositories/3").
+		AddTokenAuth(publicOnlyAccessToken.Token)
+	MakeRequest(t, notFoundPrivateByIDReq, http.StatusNotFound)
+
+	foundPrivateByIDReq := NewRequest(t, "GET", "/api/v1/repositories/3").
+		AddTokenAuth(noPublicOnlyAccessToken.Token)
+	MakeRequest(t, foundPrivateByIDReq, http.StatusOK)
+}
+
+// TestAPIPublicOnlyTokenOrgs tests that token with public-only scope only shows public organizations
+func TestAPIPublicOnlyTokenOrgs(t *testing.T) {
+	defer tests.PrepareTestEnv(t)()
+	user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 2})
+
+	session := loginUser(t, user.Name)
+
+	token := getTokenForLoggedInUser(t, session, auth_model.AccessTokenScopeWriteOrganization)
+	org := api.EditOrgOption{
+		Visibility: "private",
+	}
+	req := NewRequestWithJSON(t, "PATCH", "/api/v1/orgs/org3", &org).
+		AddTokenAuth(token)
+	MakeRequest(t, req, http.StatusOK)
+
+	publicOnlyScopes := []auth_model.AccessTokenScope{"public-only", "read:user", "read:organization", "read:repository"}
+	publicOnlyAccessToken := createAPIAccessTokenWithoutCleanUp(t, "public-only-token", user, publicOnlyScopes)
+	publicOnlyReq := NewRequest(t, "GET", "/api/v1/user/orgs").
+		AddTokenAuth(publicOnlyAccessToken.Token)
+	publicOnlyResp := MakeRequest(t, publicOnlyReq, http.StatusOK)
+	var publicOnlyOrgs []api.Organization
+	DecodeJSON(t, publicOnlyResp, &publicOnlyOrgs)
+	for _, org := range publicOnlyOrgs {
+		assert.Equal(t, "public", org.Visibility)
+	}
+	noPublicOnlyScopes := []auth_model.AccessTokenScope{"read:user", "read:organization", "read:repository"}
+	noPublicOnlyAccessToken := createAPIAccessTokenWithoutCleanUp(t, "no-public-only-token", user, noPublicOnlyScopes)
+	noPublicOnlyReq := NewRequest(t, "GET", "/api/v1/user/orgs").
+		AddTokenAuth(noPublicOnlyAccessToken.Token)
+	noPublicOnlyResp := MakeRequest(t, noPublicOnlyReq, http.StatusOK)
+	var allOrgs []api.Organization
+	DecodeJSON(t, noPublicOnlyResp, &allOrgs)
+	allOrgsCaptured := make(map[string]string)
+	for _, org := range allOrgs {
+		allOrgsCaptured[org.Name] = org.Visibility
+	}
+	allOrgsExpected := map[string]string{
+		"org17":         "public",
+		"org3":          "private",
+		"private_org35": "private",
+	}
+	assert.Equal(t, allOrgsExpected, allOrgsCaptured)
+
+	publicOnlySlashOrgReq := NewRequest(t, "GET", "/api/v1/orgs").
+		AddTokenAuth(publicOnlyAccessToken.Token)
+	publicOnlySlashOrgResp := MakeRequest(t, publicOnlySlashOrgReq, http.StatusOK)
+	DecodeJSON(t, publicOnlySlashOrgResp, &publicOnlyOrgs)
+	publicOrgsCaptured := make(map[string]string)
+	for _, org := range publicOnlyOrgs {
+		publicOrgsCaptured[org.Name] = org.Visibility
+	}
+	publicOrgsExpected := map[string]string{
+		"org17": "public",
+		"org19": "public",
+		"org25": "public",
+		"org26": "public",
+		"org41": "public",
+		"org6":  "public",
+		"org7":  "public",
+	}
+
+	assert.Equal(t, publicOrgsExpected, publicOrgsCaptured)
+
+	orgReposReq := NewRequest(t, "GET", "/api/v1/orgs/org17/repos").
+		AddTokenAuth(noPublicOnlyAccessToken.Token)
+	orgReposResp := MakeRequest(t, orgReposReq, http.StatusOK)
+	var allOrgRepos []api.Repository
+	DecodeJSON(t, orgReposResp, &allOrgRepos)
+	allOrgReposCaptured := make(map[string]bool)
+	for _, repo := range allOrgRepos {
+		allOrgReposCaptured[repo.Name] = repo.Private
+	}
+	allOrgReposExpected := map[string]bool{
+		"big_test_private_4": true,
+		"big_test_public_4":  false,
+	}
+	assert.Equal(t, allOrgReposExpected, allOrgReposCaptured)
+
+	publicOrgReposReq := NewRequest(t, "GET", "/api/v1/orgs/org17/repos").
+		AddTokenAuth(publicOnlyAccessToken.Token)
+	publicOrgReposResp := MakeRequest(t, publicOrgReposReq, http.StatusOK)
+	var publicOrgRepos []api.Repository
+	DecodeJSON(t, publicOrgReposResp, &publicOrgRepos)
+	publicOrgReposCaptured := make(map[string]bool)
+	for _, repo := range publicOrgRepos {
+		publicOrgReposCaptured[repo.Name] = repo.Private
+	}
+	publicOrgReposExpected := map[string]bool{
+		"big_test_public_4": false,
+	}
+	assert.Equal(t, publicOrgReposExpected, publicOrgReposCaptured)
+}

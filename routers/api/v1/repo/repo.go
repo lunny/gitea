@@ -197,6 +197,11 @@ func Search(ctx *context.APIContext) {
 		}
 	}
 
+	if utils.PublicOnlyToken(ctx, "ApiTokenScopePublicRepoOnly") {
+		opts.Private = false
+		opts.IsPrivate = optional.Some(false)
+	}
+
 	var err error
 	repos, count, err := repo_model.SearchRepository(ctx, opts)
 	if err != nil {
@@ -589,6 +594,12 @@ func GetByID(ctx *context.APIContext) {
 		ctx.NotFound()
 		return
 	}
+
+	if repo.IsPrivate && utils.PublicOnlyToken(ctx, "ApiTokenScopePublicRepoOnly") {
+		ctx.NotFound()
+		return
+	}
+
 	ctx.JSON(http.StatusOK, convert.ToRepo(ctx, repo, permission))
 }
 
