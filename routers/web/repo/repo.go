@@ -649,6 +649,13 @@ func SearchRepo(ctx *context.Context) {
 	}
 
 	ctx.SetTotalCountHeader(count)
+	if len(repos) == 0 {
+		ctx.JSON(http.StatusOK, repo_service.WebSearchResults{
+			OK:   true,
+			Data: []*repo_service.WebSearchRepository{},
+		})
+		return
+	}
 
 	latestCommitStatuses, err := commitstatus_service.FindReposLastestCommitStatuses(ctx, repos)
 	if err != nil {

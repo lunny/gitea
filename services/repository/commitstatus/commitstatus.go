@@ -147,6 +147,9 @@ func FindReposLastestCommitStatuses(ctx context.Context, repos []*repo_model.Rep
 			repoBranchNames[repo.ID] = repo.DefaultBranch
 		}
 	}
+	if len(repoBranchNames) == 0 {
+		return results, nil
+	}
 
 	repoIDsToLatestCommitSHAs, err := git_model.FindBranchesByRepoAndBranchName(ctx, repoBranchNames)
 	if err != nil {
