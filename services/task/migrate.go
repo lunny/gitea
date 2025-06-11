@@ -63,8 +63,11 @@ func runMigrateTask(ctx context.Context, t *admin_model.Task) (err error) {
 		t.Status = structs.TaskStatusFailed
 		t.Message = err.Error()
 		if err := t.UpdateCols(ctx, "status", "message", "end_time"); err != nil {
-			if IsShutdown(err)
-			log.Error("Task UpdateCols failed: %v", err)
+			if graceful.GetManager().IsSystemQuit(ctx) {
+				log.Warn("Task UpdateCols failed: %v", err)
+			} else {
+				log.Error("Task UpdateCols failed: %v", err)
+			}
 		}
 
 		// then, do not delete the repository, otherwise the users won't be able to see the last error

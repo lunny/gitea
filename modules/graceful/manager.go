@@ -5,8 +5,6 @@ package graceful
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"runtime/pprof"
 	"sync"
 	"time"
@@ -132,14 +130,7 @@ func (g *Manager) RunAtShutdown(ctx context.Context, shutdown func()) {
 		})
 }
 
-var (
-	errShutdown  = errors.New("graceful shutdown requested")
-	errHammer    = errors.New("graceful hammer requested")
-	errTerminate = errors.New("graceful terminate requested")
-)
-
 func (g *Manager) doShutdown() {
-	fmt.Println("Shutdown...")
 	if !g.setStateTransition(stateRunning, stateShuttingDown) {
 		g.DoImmediateHammer()
 		return
@@ -170,13 +161,12 @@ func (g *Manager) doShutdown() {
 }
 
 func (g *Manager) doHammerTime(d time.Duration) {
-	fmt.Println("Hammer...")
 	time.Sleep(d)
 	g.lock.Lock()
 	select {
 	case <-g.hammerCtx.Done():
 	default:
-		log.Warn("Setting Hammer condition")
+		log.Trace("Setting Hammer condition")
 		g.hammerCtxCancel(errHammer)
 		atHammerCtx := pprof.WithLabels(g.terminateCtx, pprof.Labels(gtprof.LabelGracefulLifecycle, "post-hammer"))
 		pprof.SetGoroutineLabels(atHammerCtx)
@@ -185,7 +175,6 @@ func (g *Manager) doHammerTime(d time.Duration) {
 }
 
 func (g *Manager) doTerminate() {
-	fmt.Println("Terminating...")
 	if !g.setStateTransition(stateShuttingDown, stateTerminate) {
 		return
 	}
@@ -193,7 +182,7 @@ func (g *Manager) doTerminate() {
 	select {
 	case <-g.terminateCtx.Done():
 	default:
-		log.Warn("Terminating")
+		log.Trace("Terminating")
 		g.terminateCtxCancel(errTerminate)
 		atTerminateCtx := pprof.WithLabels(g.managerCtx, pprof.Labels(gtprof.LabelGracefulLifecycle, "post-terminate"))
 		pprof.SetGoroutineLabels(atTerminateCtx)

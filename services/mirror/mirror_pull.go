@@ -16,6 +16,7 @@ import (
 	giturl "code.gitea.io/gitea/modules/git/url"
 	"code.gitea.io/gitea/modules/gitrepo"
 	"code.gitea.io/gitea/modules/globallock"
+	"code.gitea.io/gitea/modules/graceful"
 	"code.gitea.io/gitea/modules/lfs"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/process"
@@ -462,7 +463,11 @@ func SyncPullMirror(ctx context.Context, repoID int64) bool {
 
 	releaser, err := globallock.Lock(ctx, getRepoPullMirrorLockKey(repoID))
 	if err != nil {
-		log.Error("globallock.Lock(): %v", err)
+		if !graceful.GetManager().IsSystemQuit(ctx) {
+			log.Error("globallock.Lock(): %v", err)
+		} else {
+			log.Trace("globallock.Lock() exit caused by system quit: %v", err)
+		}
 		return false
 	}
 	defer releaser()
@@ -481,7 +486,11 @@ func SyncPullMirror(ctx context.Context, repoID int64) bool {
 	results, ok := runSync(ctx, m)
 	if !ok {
 		if err = repo_model.TouchMirror(ctx, m); err != nil {
-			log.Error("SyncMirrors [repo: %-v]: failed to TouchMirror: %v", m.Repo, err)
+			if graceful.GetManager().IsSystemQuit(ctx) {
+				log.Warn("SyncMirrors [repo: %-v]: failed to TouchMirror: %v", m.Repo, err)
+			} else {
+				log.Error("SyncMirrors [repo: %-v]: failed to TouchMirror: %v", m.Repo, err)
+			}
 		}
 		return false
 	}

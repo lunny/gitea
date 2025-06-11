@@ -129,19 +129,19 @@ func (g *Manager) handleSignals(ctx context.Context) {
 				log.Info("PID: %d. Received SIGHUP. Attempting GracefulRestart...", pid)
 				g.DoGracefulRestart()
 			case syscall.SIGUSR1:
-				log.Warn("PID %d. Received SIGUSR1. Releasing and reopening logs", pid)
+				log.Info("PID %d. Received SIGUSR1. Releasing and reopening logs", pid)
 				g.notify(statusMsg("Releasing and reopening logs"))
 				if err := releasereopen.GetManager().ReleaseReopen(); err != nil {
 					log.Error("Error whilst releasing and reopening logs: %v", err)
 				}
 			case syscall.SIGUSR2:
-				log.Warn("PID %d. Received SIGUSR2. Hammering...", pid)
+				log.Info("PID %d. Received SIGUSR2. Hammering...", pid)
 				g.DoImmediateHammer()
 			case syscall.SIGINT:
-				log.Warn("PID %d. Received SIGINT. Shutting down...", pid)
+				log.Info("PID %d. Received SIGINT. Shutting down...", pid)
 				g.DoGracefulShutdown()
 			case syscall.SIGTERM:
-				log.Warn("PID %d. Received SIGTERM. Shutting down...", pid)
+				log.Info("PID %d. Received SIGTERM. Shutting down...", pid)
 				g.DoGracefulShutdown()
 			case syscall.SIGTSTP:
 				log.Info("PID %d. Received SIGTSTP.", pid)
@@ -151,7 +151,9 @@ func (g *Manager) handleSignals(ctx context.Context) {
 		case <-t.C:
 			g.notify(watchdogMsg)
 		case <-ctx.Done():
-			log.Warn("PID: %d. Background context for manager closed - %v - Shutting down...", pid, ctx.Err())
+			if !g.IsSystemQuit(ctx) {
+				log.Warn("PID: %d. Background context for manager closed - %v - Shutting down...", pid, ctx.Err())
+			}
 			g.DoGracefulShutdown()
 			return
 		}
