@@ -63,6 +63,7 @@ func runMigrateTask(ctx context.Context, t *admin_model.Task) (err error) {
 		t.Status = structs.TaskStatusFailed
 		t.Message = err.Error()
 		if err := t.UpdateCols(ctx, "status", "message", "end_time"); err != nil {
+			if IsShutdown(err)
 			log.Error("Task UpdateCols failed: %v", err)
 		}
 

@@ -39,10 +39,10 @@ type Manager struct {
 	hammerCtx              context.Context
 	terminateCtx           context.Context
 	managerCtx             context.Context
-	shutdownCtxCancel      context.CancelFunc
-	hammerCtxCancel        context.CancelFunc
-	terminateCtxCancel     context.CancelFunc
-	managerCtxCancel       context.CancelFunc
+	shutdownCtxCancel      context.CancelCauseFunc
+	hammerCtxCancel        context.CancelCauseFunc
+	terminateCtxCancel     context.CancelCauseFunc
+	managerCtxCancel       context.CancelCauseFunc
 	runningServerWaitGroup sync.WaitGroup
 	terminateWaitGroup     sync.WaitGroup
 	createServerCond       sync.Cond
@@ -62,10 +62,10 @@ func newGracefulManager(ctx context.Context) *Manager {
 }
 
 func (g *Manager) prepare(ctx context.Context) {
-	g.terminateCtx, g.terminateCtxCancel = context.WithCancel(ctx)
-	g.shutdownCtx, g.shutdownCtxCancel = context.WithCancel(ctx)
-	g.hammerCtx, g.hammerCtxCancel = context.WithCancel(ctx)
-	g.managerCtx, g.managerCtxCancel = context.WithCancel(ctx)
+	g.terminateCtx, g.terminateCtxCancel = context.WithCancelCause(ctx)
+	g.shutdownCtx, g.shutdownCtxCancel = context.WithCancelCause(ctx)
+	g.hammerCtx, g.hammerCtxCancel = context.WithCancelCause(ctx)
+	g.managerCtx, g.managerCtxCancel = context.WithCancelCause(ctx)
 
 	g.terminateCtx = pprof.WithLabels(g.terminateCtx, pprof.Labels(gtprof.LabelGracefulLifecycle, "with-terminate"))
 	g.shutdownCtx = pprof.WithLabels(g.shutdownCtx, pprof.Labels(gtprof.LabelGracefulLifecycle, "with-shutdown"))
