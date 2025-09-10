@@ -1,6 +1,7 @@
 {{$index := 0}}
 <div class="timeline-item commits-list">
-{{range .comment.Commits}}
+{{$pushActionContent := .comment.PushActionContent}}
+{{range $pushActionContent.Commits}}
 	{{$tag := printf "%s-%d" $.comment.HashTag $index}}
 	{{$index = Eval $index "+" 1}}
 	<div class="flex-text-block" id="{{$tag}}">{{/*singular-commit*/}}

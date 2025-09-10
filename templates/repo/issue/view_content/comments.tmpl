@@ -541,27 +541,30 @@
 					{{end}}
 				</span>
 			</div>
-		{{else if and (eq .Type 29) (or (gt .CommitsNum 0) .IsForcePush)}}
-			<!-- If PR is closed, the comments whose type is CommentTypePullRequestPush(29) after latestCloseCommentID won't be rendered. //-->
-			{{if and .Issue.IsClosed (gt .ID $.LatestCloseCommentID)}}
-				{{continue}}
-			{{end}}
-			<div class="timeline-item event" id="{{.HashTag}}">
-				<span class="badge">{{svg "octicon-repo-push"}}</span>
-				<span class="comment-text-line">
-					{{template "shared/user/authorlink" .Poster}}
-					{{if .IsForcePush}}
-						{{ctx.Locale.Tr "repo.issues.force_push_codes" $.Issue.PullRequest.HeadBranch (ShortSha .OldCommit) ($.Issue.Repo.CommitLink .OldCommit) (ShortSha .NewCommit) ($.Issue.Repo.CommitLink .NewCommit) $createdStr}}
-					{{else}}
-						{{ctx.Locale.TrN (len .Commits) "repo.issues.push_commit_1" "repo.issues.push_commits_n" (len .Commits) $createdStr}}
-					{{end}}
-				</span>
-				{{if and .IsForcePush $.Issue.PullRequest.BaseRepo.Name}}
-					<a class="ui label comment-text-label tw-float-right" href="{{$.Issue.PullRequest.BaseRepo.Link}}/compare/{{PathEscape .OldCommit}}..{{PathEscape .NewCommit}}" rel="nofollow">{{ctx.Locale.Tr "repo.issues.force_push_compare"}}</a>
+		{{else if eq .Type 29}}
+			{{$pushActionContent := .PushActionContent}}
+			{{if or (gt (len $pushActionContent.Commits) 0) $pushActionContent.IsForcePush}}
+				<!-- If PR is closed, the comments whose type is CommentTypePullRequestPush(29) after latestCloseCommentID won't be rendered. //-->
+				{{if and .Issue.IsClosed (gt .ID $.LatestCloseCommentID)}}
+					{{continue}}
 				{{end}}
-			</div>
-			{{if not .IsForcePush}}
-				{{template "repo/commits_list_small" dict "comment" . "root" $}}
+				<div class="timeline-item event" id="{{.HashTag}}">
+					<span class="badge">{{svg "octicon-repo-push"}}</span>
+					<span class="comment-text-line">
+						{{template "shared/user/authorlink" .Poster}}
+						{{if $pushActionContent.IsForcePush}}
+							{{ctx.Locale.Tr "repo.issues.force_push_codes" $.Issue.PullRequest.HeadBranch (ShortSha $pushActionContent.OldCommit) ($.Issue.Repo.CommitLink $pushActionContent.OldCommit) (ShortSha $pushActionContent.NewCommit) ($.Issue.Repo.CommitLink $pushActionContent.NewCommit) $createdStr}}
+						{{else}}
+							{{ctx.Locale.TrN (len $pushActionContent.Commits) "repo.issues.push_commit_1" "repo.issues.push_commits_n" (len $pushActionContent.Commits) $createdStr}}
+						{{end}}
+					</span>
+					{{if and $pushActionContent.IsForcePush $.Issue.PullRequest.BaseRepo.Name}}
+						<a class="ui label comment-text-label tw-float-right" href="{{$.Issue.PullRequest.BaseRepo.Link}}/compare/{{PathEscape $pushActionContent.OldCommit}}..{{PathEscape $pushActionContent.NewCommit}}" rel="nofollow">{{ctx.Locale.Tr "repo.issues.force_push_compare"}}</a>
+					{{end}}
+				</div>
+				{{if not $pushActionContent.IsForcePush}}
+					{{template "repo/commits_list_small" dict "comment" . "root" $}}
+				{{end}}
 			{{end}}
 		{{else if eq .Type 30}}
 			<div class="timeline-item event" id="{{.HashTag}}">

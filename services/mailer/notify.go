@@ -12,6 +12,7 @@ import (
 	issues_model "code.gitea.io/gitea/models/issues"
 	repo_model "code.gitea.io/gitea/models/repo"
 	user_model "code.gitea.io/gitea/models/user"
+	"code.gitea.io/gitea/modules/gitrepo"
 	"code.gitea.io/gitea/modules/log"
 	issue_service "code.gitea.io/gitea/services/issue"
 	notify_service "code.gitea.io/gitea/services/notify"
@@ -173,7 +174,15 @@ func (m *mailNotifier) PullRequestPushCommits(ctx context.Context, doer *user_mo
 		log.Error("comment.Issue.PullRequest.LoadBaseRepo: %v", err)
 		return
 	}
-	if err := issue_service.LoadCommentPushCommits(ctx, comment); err != nil {
+
+	gitRepo, closer, err := gitrepo.RepositoryFromContextOrOpen(ctx, comment.Issue.Repo)
+	if err != nil {
+		log.Error("RepositoryFromContextOrOpen: %v", err)
+		return
+	}
+	defer closer.Close()
+
+	if err := issue_service.LoadCommentPushCommits(ctx, gitRepo, comment); err != nil {
 		log.Error("comment.LoadPushCommits: %v", err)
 	}
 	m.CreateIssueComment(ctx, doer, comment.Issue.Repo, comment.Issue, comment, nil)

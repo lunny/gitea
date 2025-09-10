@@ -5,6 +5,7 @@ package issue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -13,8 +14,8 @@ import (
 	access_model "code.gitea.io/gitea/models/perm/access"
 	repo_model "code.gitea.io/gitea/models/repo"
 	user_model "code.gitea.io/gitea/models/user"
-	"code.gitea.io/gitea/modules/gitrepo"
-	"code.gitea.io/gitea/modules/json"
+	"code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/timeutil"
 	git_service "code.gitea.io/gitea/services/git"
 	notify_service "code.gitea.io/gitea/services/notify"
@@ -151,38 +152,35 @@ func DeleteComment(ctx context.Context, doer *user_model.User, comment *issues_m
 }
 
 // LoadCommentPushCommits Load push commits
-func LoadCommentPushCommits(ctx context.Context, c *issues_model.Comment) (err error) {
-	if c.Content == "" || c.Commits != nil || c.Type != issues_model.CommentTypePullRequestPush {
+func LoadCommentPushCommits(ctx context.Context, gitRepo *git.Repository, c *issues_model.Comment) error {
+	if c.Content == "" || c.Type != issues_model.CommentTypePullRequestPush {
 		return nil
 	}
 
-	var data issues_model.PushActionContent
-	err = json.Unmarshal([]byte(c.Content), &data)
-	if err != nil {
+	c.PushActionContent = &issues_model.PushActionContent{}
+	if err := json.Unmarshal([]byte(c.Content), c.PushActionContent); err != nil {
 		return err
 	}
 
-	c.IsForcePush = data.IsForcePush
-
-	if c.IsForcePush {
-		if len(data.CommitIDs) != 2 {
-			return nil
-		}
-		c.OldCommit = data.CommitIDs[0]
-		c.NewCommit = data.CommitIDs[1]
-	} else {
-		gitRepo, closer, err := gitrepo.RepositoryFromContextOrOpen(ctx, c.Issue.Repo)
-		if err != nil {
-			return err
-		}
-		defer closer.Close()
-
-		c.Commits, err = git_service.ConvertFromGitCommit(ctx, gitRepo.GetCommitsFromIDs(data.CommitIDs), c.Issue.Repo)
-		if err != nil {
-			return err
-		}
-		c.CommitsNum = int64(len(c.Commits))
+	if c.PushActionContent.Commits != nil {
+		return nil
 	}
 
-	return err
+	if !c.PushActionContent.IsForcePush {
+		var err error
+		c.PushActionContent.Commits, err = git_service.ConvertFromGitCommit(ctx, gitRepo.GetCommitsFromIDs(c.PushActionContent.CommitIDs), c.Issue.Repo)
+		if err != nil {
+			return err
+		}
+
+		// If we have commits, we need to update it to database
+		if len(c.PushActionContent.Commits) > 0 {
+			err := issues_model.UpdatePushCommentData(ctx, c)
+			if err != nil {
+				log.Error("UpdatePushCommentData: %v", err)
+			}
+		}
+	}
+
+	return nil
 }

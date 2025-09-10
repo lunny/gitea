@@ -140,7 +140,7 @@ func NewPullRequest(ctx context.Context, opts *NewPullRequestOptions) error {
 			return err
 		}
 
-		if _, err := CreatePushPullComment(ctx, issue.Poster, pr, git.BranchPrefix+pr.BaseBranch, pr.GetGitHeadRefName(), false); err != nil {
+		if _, err := CreatePushPullComment(ctx, baseGitRepo, issue.Poster, pr, git.BranchPrefix+pr.BaseBranch, pr.GetGitHeadRefName(), false); err != nil {
 			return err
 		}
 
@@ -334,7 +334,7 @@ func ChangeTargetBranch(ctx context.Context, pr *issues_model.PullRequest, doer 
 			return err
 		}
 
-		_, err = CreatePushPullComment(ctx, doer, pr, git.BranchPrefix+pr.BaseBranch, pr.GetGitHeadRefName(), false)
+		_, err = CreatePushPullComment(ctx, baseGitRepo, doer, pr, git.BranchPrefix+pr.BaseBranch, pr.GetGitHeadRefName(), false)
 		return err
 	})
 }
@@ -378,6 +378,19 @@ func AddTestPullRequestTask(opts TestPullRequestOptions) {
 		// If you don't let it run all the way then you will lose data
 		// TODO: graceful: AddTestPullRequestTask needs to become a queue!
 
+		repo, err := repo_model.GetRepositoryByID(ctx, opts.RepoID)
+		if err != nil {
+			log.Error("GetRepositoryByID: %v", err)
+			return
+		}
+
+		gitRepo, closer, err := gitrepo.RepositoryFromContextOrOpen(ctx, repo)
+		if err != nil {
+			log.Error("RepositoryFromContextOrOpen: %v", err)
+			return
+		}
+		defer closer.Close()
+
 		// GetUnmergedPullRequestsByHeadInfo() only return open and unmerged PR.
 		prs, err := issues_model.GetUnmergedPullRequestsByHeadInfo(ctx, opts.RepoID, opts.Branch)
 		if err != nil {
@@ -397,7 +410,7 @@ func AddTestPullRequestTask(opts TestPullRequestOptions) {
 			}
 
 			StartPullRequestCheckImmediately(ctx, pr)
-			comment, err := CreatePushPullComment(ctx, opts.Doer, pr, opts.OldCommitID, opts.NewCommitID, opts.IsForcePush)
+			comment, err := CreatePushPullComment(ctx, gitRepo, opts.Doer, pr, opts.OldCommitID, opts.NewCommitID, opts.IsForcePush)
 			if err == nil && comment != nil {
 				notify_service.PullRequestPushCommits(ctx, opts.Doer, pr, comment)
 			}

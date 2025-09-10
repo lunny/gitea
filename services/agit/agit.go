@@ -250,19 +250,18 @@ func ProcReceive(ctx context.Context, repo *repo_model.Repository, gitRepo *git.
 		if err != nil {
 			return nil, fmt.Errorf("failed to load pull issue. Error: %w", err)
 		}
-		comment, err := pull_service.CreatePushPullComment(ctx, pusher, pr, oldCommitID, opts.NewCommitIDs[i], forcePush.Value())
+		comment, err := pull_service.CreatePushPullComment(ctx, gitRepo, pusher, pr, oldCommitID, opts.NewCommitIDs[i], forcePush.Value())
 		if err == nil && comment != nil {
 			notify_service.PullRequestPushCommits(ctx, pusher, pr, comment)
 		}
 		notify_service.PullRequestSynchronized(ctx, pusher, pr)
-		isForcePush := comment != nil && comment.IsForcePush
 
 		results = append(results, private.HookProcReceiveRefResult{
 			OldOID:            oldCommitID,
 			NewOID:            opts.NewCommitIDs[i],
 			Ref:               pr.GetGitHeadRefName(),
 			OriginalRef:       opts.RefFullNames[i],
-			IsForcePush:       isForcePush,
+			IsForcePush:       forcePush.Value(),
 			IsCreatePR:        false,
 			URL:               fmt.Sprintf("%s/pulls/%d", repo.HTMLURL(), pr.Index),
 			ShouldShowMessage: setting.Git.PullRequestPushMessage && repo.AllowsPulls(ctx),

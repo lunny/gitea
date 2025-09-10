@@ -319,11 +319,7 @@ type Comment struct {
 	RefIssue   *Issue                 `xorm:"-"`
 	RefComment *Comment               `xorm:"-"`
 
-	Commits     []*git_model.SignCommitWithStatuses `xorm:"-"`
-	OldCommit   string                              `xorm:"-"`
-	NewCommit   string                              `xorm:"-"`
-	CommitsNum  int64                               `xorm:"-"`
-	IsForcePush bool                                `xorm:"-"`
+	PushActionContent *PushActionContent `xorm:"-"`
 }
 
 func init() {
@@ -332,8 +328,23 @@ func init() {
 
 // PushActionContent is content of push pull comment
 type PushActionContent struct {
-	IsForcePush bool     `json:"is_force_push"`
-	CommitIDs   []string `json:"commit_ids"`
+	IsForcePush bool                                `json:"is_force_push"`
+	CommitIDs   []string                            `json:"commit_ids"`
+	Commits     []*git_model.SignCommitWithStatuses `json:"commits"`
+}
+
+func (p *PushActionContent) OldCommit() string {
+	if len(p.CommitIDs) > 0 {
+		return p.CommitIDs[0]
+	}
+	return ""
+}
+
+func (p *PushActionContent) NewCommit() string {
+	if len(p.CommitIDs) > 1 {
+		return p.CommitIDs[1]
+	}
+	return ""
 }
 
 // LoadIssue loads the issue reference for the comment
@@ -812,7 +823,6 @@ func CreateComment(ctx context.Context, opts *CreateCommentOptions) (_ *Comment,
 			RefCommentID:     opts.RefCommentID,
 			RefAction:        opts.RefAction,
 			RefIsPull:        opts.RefIsPull,
-			IsForcePush:      opts.IsForcePush,
 			Invalidated:      opts.Invalidated,
 			CommentMetaData:  commentMetaData,
 		}
@@ -977,7 +987,6 @@ type CreateCommentOptions struct {
 	RefCommentID       int64
 	RefAction          references.XRefAction
 	RefIsPull          bool
-	IsForcePush        bool
 	Invalidated        bool
 }
 
