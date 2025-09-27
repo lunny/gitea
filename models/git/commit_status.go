@@ -19,6 +19,7 @@ import (
 	user_model "code.gitea.io/gitea/models/user"
 	"code.gitea.io/gitea/modules/commitstatus"
 	"code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/json"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/timeutil"
@@ -502,6 +503,16 @@ type SignCommitWithStatuses struct {
 	Status   *CommitStatus
 	Statuses []*CommitStatus
 	*asymkey_model.SignCommit
+}
+
+func (c *SignCommitWithStatuses) MasherJSON() ([]byte, error) {
+	// TODO: implement our own marshal
+	return json.Marshal(c)
+}
+
+func (c *SignCommitWithStatuses) UnmasherJSON(data []byte) error {
+	// TODO: implement our own unmarshal
+	return json.Unmarshal(data, c)
 }
 
 // hashCommitStatusContext hash context

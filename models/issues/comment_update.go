@@ -5,9 +5,9 @@ package issues
 
 import (
 	"context"
-	"encoding/json"
 
 	"code.gitea.io/gitea/models/db"
+	"code.gitea.io/gitea/modules/json"
 )
 
 // UpdatePushCommentData updates the push comment data in the database.
