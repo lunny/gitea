@@ -352,6 +352,17 @@ func getUnitsByRepoID(ctx context.Context, repoID int64) (units []*RepoUnit, err
 	return units, nil
 }
 
+func GetRepoUnit(ctx context.Context, repoID int64, unitType unit.Type) (*RepoUnit, error) {
+	var ru RepoUnit
+	has, err := db.GetEngine(ctx).Where("repo_id = ? AND type = ?", repoID, unitType).Get(&ru)
+	if err != nil {
+		return nil, err
+	} else if !has {
+		return nil, ErrUnitTypeNotExist{UT: unitType}
+	}
+	return &ru, nil
+}
+
 // UpdateRepoUnit updates the provided repo unit
 func UpdateRepoUnit(ctx context.Context, unit *RepoUnit) error {
 	_, err := db.GetEngine(ctx).ID(unit.ID).Update(unit)

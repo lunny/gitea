@@ -412,6 +412,18 @@ func RenameBranch(ctx context.Context, repo *repo_model.Repository, from, to str
 			}
 		}
 
+		// Update pull request configurations
+		prUnit, err := repo_model.GetRepoUnit(ctx, repo.ID, unit.TypePullRequests)
+		if err != nil && !repo_model.IsErrUnitTypeNotExist(err) {
+			return err
+		}
+		if prUnit != nil && prUnit.PullRequestsConfig().DefaultTargetBranch == from {
+			prUnit.PullRequestsConfig().DefaultTargetBranch = to
+			if _, err = sess.ID(prUnit.ID).Cols("config").Update(prUnit); err != nil {
+				return err
+			}
+		}
+
 		// 4. Update all not merged pull request base branch name
 		_, err = sess.Table("pull_request").Where("base_repo_id=? AND base_branch=? AND has_merged=?",
 			repo.ID, from, false).
